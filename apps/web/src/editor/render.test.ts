@@ -41,6 +41,19 @@ const pixel = (ctx: ReturnType<typeof render>, x = 32, y = 32) =>
   Array.from(ctx.getImageData(x, y, 1, 1).data);
 
 describe('пиксельный рендер независимых слоёв', () => {
+  it('меняет видимый верхний цвет после перестановки слоёв', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const red = paint(base, base.activeLayerId, makeStroke('red', '#FF0000'));
+    const withTop = applyAction(red, {
+      type: 'addLayer',
+      layer: { id: 'top', kind: 'paint', name: 'Синий', strokes: [], visible: true, locked: false, opacity: 1 },
+    });
+    const blue = paint(withTop, 'top', makeStroke('blue', '#0000FF'));
+    const moved = applyAction(blue, { type: 'reorderLayer', layerId: base.activeLayerId, toIndex: 1 });
+    expect(pixel(render(blue))).toEqual([0, 0, 255, 255]);
+    expect(pixel(render(moved))).toEqual([255, 0, 0, 255]);
+  });
+
   it('стирание в верхнем слое раскрывает нижний, не стирая его', () => {
     const first = createProject({ width: 64, height: 64 });
     const red = paint(first, first.activeLayerId, makeStroke('red', '#FF0000'));

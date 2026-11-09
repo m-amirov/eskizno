@@ -64,6 +64,7 @@ export interface DrawingProject {
 
 export type ProjectAction =
   | { type: 'addStroke'; layerId: string; stroke: Stroke }
+  | { type: 'clearDrawing' }
   | { type: 'addLayer'; layer: Layer; index?: number }
   | { type: 'removeLayer'; layerId: string }
   | { type: 'reorderLayer'; layerId: string; toIndex: number }
@@ -224,6 +225,13 @@ export function createProject(options: CreateProjectOptions = {}): DrawingProjec
 
 export function applyAction(project: DrawingProject, action: ProjectAction): DrawingProject {
   switch (action.type) {
+    case 'clearDrawing': {
+      if (!project.layers.some((layer) => layer.kind === 'paint' && layer.strokes.length > 0)) return project;
+      return nextProject(project, {
+        layers: project.layers.map((layer) => layer.kind === 'paint' && layer.strokes.length > 0
+          ? { ...layer, strokes: [] } : layer),
+      });
+    }
     case 'addStroke': {
       if (!isValidStroke(action.stroke)) return project;
       if (project.layers.some((layer) => layer.kind === 'paint'

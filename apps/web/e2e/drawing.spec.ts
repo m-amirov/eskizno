@@ -83,3 +83,40 @@ test('полноэкранная студия сохраняет инструм�
   await expect(page.getByRole('button', { name: 'Полный экран' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeVisible();
 });
+
+test('свой цвет открывает HSV редактор, а очистка рисунка обратима', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await page.getByRole('button', { name: /Палитра, выбран/ }).click();
+  await page.getByRole('button', { name: 'Свой цвет' }).click();
+  await page.getByRole('textbox', { name: 'HEX' }).fill('#ff0000');
+  await page.getByRole('button', { name: 'Применить' }).click();
+  await expect(page.getByRole('button', { name: /Палитра, выбран #FF0000/ })).toBeVisible();
+
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const rect = await canvas.boundingBox();
+  if (!rect) throw new Error('Холст не виден');
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(rect.x + rect.width * .6, rect.y + rect.height * .6, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Очистить', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.getByRole('button', { name: 'Очистить рисунок' }).click();
+  await expect(page.getByText('Штрихов: 0')).toBeVisible();
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+});
+
+test('перетаскивание меняет порядок слоёв и отменяется', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await page.getByRole('button', { name: 'Добавить слой' }).click();
+  const list = page.locator('.layers-list');
+  await expect(list.locator('.layer-row').first()).toContainText('Слой 2');
+  await page.getByRole('button', { name: 'Перетащить Слой 1' }).dragTo(page.getByRole('button', { name: 'Перетащить Слой 2' }));
+  await expect(list.locator('.layer-row').first()).toContainText('Слой 1');
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(list.locator('.layer-row').first()).toContainText('Слой 2');
+});

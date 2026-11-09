@@ -135,6 +135,27 @@ describe('модель рисунка', () => {
     expect(initial.layers).toHaveLength(1);
   });
 
+  it('очищает штрихи всех paint-слоёв, не удаляя слои и референсы', () => {
+    const first = createProject();
+    const withStroke = applyAction(first, {
+      type: 'addStroke', layerId: first.activeLayerId,
+      stroke: { id: 'first', kind: 'ink', brushId: 'pencil', color: '#123456', width: 5, opacity: 1, points: [{ x: 0.2, y: 0.2 }] },
+    });
+    const withReference = applyAction(withStroke, { type: 'addLayer', layer: referenceLayer('ref') });
+    const withSecond = applyAction(withReference, { type: 'addLayer', layer: paintLayer('second') });
+    const withSecondStroke = applyAction(withSecond, {
+      type: 'addStroke', layerId: 'second',
+      stroke: { id: 'second-stroke', kind: 'ink', brushId: 'pencil', color: '#654321', width: 5, opacity: 1, points: [{ x: 0.8, y: 0.8 }] },
+    });
+
+    const cleared = applyAction(withSecondStroke, { type: 'clearDrawing' });
+    expect(cleared.layers.map((layer) => layer.id)).toEqual(withSecondStroke.layers.map((layer) => layer.id));
+    expect(cleared.layers.filter((layer) => layer.kind === 'paint').every((layer) => layer.kind === 'paint' && layer.strokes.length === 0)).toBe(true);
+    expect(cleared.layers[1]).toEqual(withSecondStroke.layers[1]);
+    expect(cleared.activeLayerId).toBe(withSecondStroke.activeLayerId);
+    expect(applyAction(cleared, { type: 'clearDrawing' })).toBe(cleared);
+  });
+
   it('меняет трансформацию только reference-слоя и хранит собственную палитру', () => {
     const initial = createProject({});
     const withReference = applyAction(initial, { type: 'addLayer', layer: referenceLayer('ref') });

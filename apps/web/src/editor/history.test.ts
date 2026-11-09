@@ -27,6 +27,15 @@ describe('история редактора', () => {
     expect(initial.present.layers[0]).toMatchObject({ strokes: [] });
   });
 
+  it('восстанавливает рисунок после очистки всех штрихов', () => {
+    const initial = createProjectHistory(createProject());
+    const painted = commitAction(initial, { type: 'addStroke', layerId: initial.present.activeLayerId, stroke });
+    const cleared = commitAction(painted, { type: 'clearDrawing' });
+    expect(cleared.present.layers[0]).toMatchObject({ strokes: [] });
+    expect(undoAction(cleared).present.layers[0]).toMatchObject({ strokes: [stroke] });
+    expect(redoAction(undoAction(cleared)).present.layers[0]).toMatchObject({ strokes: [] });
+  });
+
   it('восстанавливает слои и настройки, а не только штрихи', () => {
     const initial = createProjectHistory(createProject({}));
     const added = commitAction(initial, {

@@ -5,6 +5,7 @@ import type { ProjectHistory } from './history';
 import { MAX_LAYERS, type DrawingProject, type PaintLayer, type Point, type ProjectAction, type Stroke } from './model';
 import { renderProject } from './render';
 import { PalettePopover } from './PalettePopover';
+import { LayerList } from './LayerList';
 
 type Tool = 'ink' | 'erase';
 type Gesture = { pointerId: number; layerId: string; points: Point[] };
@@ -49,10 +50,14 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [canvasDisplayWidth, setCanvasDisplayWidth] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const confirmClearButtonRef = useRef<HTMLButtonElement>(null);
   const immersive = nativeFullscreen || focusMode;
   const active = project.layers.find((layer) => layer.id === project.activeLayerId);
   const canDraw = active?.kind === 'paint' && active.visible && !active.locked;
   const pointCount = project.layers.reduce((sum, layer) => sum + (layer.kind === 'paint' ? layer.strokes.length : 0), 0);
+
+  useEffect(() => { if (confirmClear) confirmClearButtonRef.current?.focus(); }, [confirmClear]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -252,6 +257,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
           <span className="toolbar-divider" aria-hidden="true" />
           <button type="button" onClick={onUndo} disabled={!history.past.length}>Отменить</button>
           <button type="button" onClick={onRedo} disabled={!history.future.length}>Повторить</button>
+          <button type="button" className="clear-trigger" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={pointCount === 0}>Очистить</button>
           <button type="button" className="fullscreen-toggle" aria-pressed={immersive} onClick={toggleFullscreen}>{immersive ? 'Выйти из полного экрана' : 'Полный экран'}</button>
         </div>
         <div className="artboard-stage" ref={stageRef}>
@@ -287,22 +293,32 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         <div className={layersExpanded ? 'layers-body open' : 'layers-body'}>
           <h3>Слои</h3>
           <p className="layers-hint">Верхний слой перекрывает нижний. Ластик действует только на выбранный слой.</p>
-          <div className="layers-list">
-            {[...project.layers].reverse().map((layer) => (
-              <div className={layer.id === project.activeLayerId ? 'layer-row selected' : 'layer-row'} key={layer.id}>
-                <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === project.activeLayerId}>
-                  {layer.name}{layer.id === project.activeLayerId ? ' · выбран' : ''}
-                </button>
-                <button type="button" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} ${layer.name}`} onClick={() => onAction({ type: 'setLayerVisibility', layerId: layer.id, visible: !layer.visible })}>{layer.visible ? '◉' : '○'}</button>
-                <button type="button" aria-label={`${layer.locked ? 'Разблокировать' : 'Заблокировать'} ${layer.name}`} onClick={() => onAction({ type: 'setLayerLock', layerId: layer.id, locked: !layer.locked })}>{layer.locked ? '🔒' : '○'}</button>
-              </div>
-            ))}
-          </div>
+          <LayerList layers={project.layers} activeLayerId={project.activeLayerId} onAction={onAction} />
           <button className="secondary-button add-layer" type="button" onClick={addLayer} disabled={project.layers.length >= MAX_LAYERS}>Добавить слой</button>
           {!canDraw && <p className="layers-hint" role="status">Выбранный слой скрыт или заблокирован.</p>}
           <p className="draft-warning" role="note">Черновик пока хранится только до перезагрузки страницы. Сохранение появится на следующем этапе.</p>
         </div>
       </aside>
+      {confirmClear && (
+        <div className="clear-dialog-backdrop">
+          <div className="clear-dialog" role="alertdialog" aria-modal="true" aria-labelledby="clear-dialog-title" aria-describedby="clear-dialog-description" onKeyDown={(event) => {
+            if (event.key === 'Escape') { event.stopPropagation(); setConfirmClear(false); }
+          }}>
+            <h3 id="clear-dialog-title">Очистить рисунок?</h3>
+            <p id="clear-dialog-description">Штрихи со всех слоёв будут удалены. Сами слои останутся, а рисунок можно будет вернуть кнопкой «Отменить».</p>
+            <div className="clear-dialog-actions">
+              <button type="button" onClick={() => setConfirmClear(false)}>Отмена очистки</button>
+              <button type="button" ref={confirmClearButtonRef} className="clear-confirm-button" onClick={() => {
+                cancelStroke();
+                touchPointers.current.clear();
+                pinchPrevious.current = null;
+                onAction({ type: 'clearDrawing' });
+                setConfirmClear(false);
+              }}>Очистить рисунок</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

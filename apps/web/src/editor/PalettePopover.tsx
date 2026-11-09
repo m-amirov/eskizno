@@ -1,5 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 
+import { HsvColorEditor } from './HsvColorEditor';
+
 interface PalettePopoverProps {
   color: string;
   colors: readonly string[];
@@ -11,6 +13,7 @@ const MAX_COLORS = 32;
 
 export function PalettePopover({ color, colors, onSelect, onSaveColor }: PalettePopoverProps) {
   const [open, setOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
   const [placement, setPlacement] = useState({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -20,15 +23,16 @@ export function PalettePopover({ color, colors, onSelect, onSaveColor }: Palette
   useEffect(() => {
     if (!open) return;
     const dismissPointer = (event: globalThis.PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node)) { setOpen(false); setCustomOpen(false); }
     };
     const dismissKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpen(false);
+        setCustomOpen(false);
         toggleRef.current?.focus();
       }
     };
-    const dismissScroll = () => setOpen(false);
+    const dismissScroll = () => { setOpen(false); setCustomOpen(false); };
     document.addEventListener('pointerdown', dismissPointer);
     document.addEventListener('keydown', dismissKey);
     window.addEventListener('scroll', dismissScroll, true);
@@ -40,7 +44,7 @@ export function PalettePopover({ color, colors, onSelect, onSaveColor }: Palette
   }, [open]);
 
   const toggle = () => {
-    if (open) { setOpen(false); return; }
+    if (open) { setOpen(false); setCustomOpen(false); return; }
     const rect = toggleRef.current?.getBoundingClientRect();
     if (rect) {
       const width = Math.min(312, window.innerWidth - 24);
@@ -67,10 +71,10 @@ export function PalettePopover({ color, colors, onSelect, onSaveColor }: Palette
         <span>Палитра</span>
       </button>
       {open && (
-        <div className="palette-popover" id={popupId} role="dialog" aria-label="Палитра цветов" style={placement}>
+        <div className="palette-popover" id={popupId} role="dialog" aria-label="Палитра цветов" style={{ ...placement, maxHeight: Math.max(0, window.innerHeight - placement.top - 12) }}>
           <div className="palette-popover-heading">
             <strong>Цвета рисунка</strong>
-            <button type="button" className="palette-close" aria-label="Закрыть палитру" onClick={() => setOpen(false)}>×</button>
+            <button type="button" className="palette-close" aria-label="Закрыть палитру" onClick={() => { setOpen(false); setCustomOpen(false); }}>×</button>
           </div>
           <p className="palette-caption">Выберите оттенок для следующей линии</p>
           <div className="palette-swatches">
@@ -86,11 +90,22 @@ export function PalettePopover({ color, colors, onSelect, onSaveColor }: Palette
               />
             ))}
           </div>
-          <div className="palette-custom-row">
-            <label htmlFor={`${popupId}-custom`}>Свой цвет</label>
-            <input id={`${popupId}-custom`} type="color" aria-label="Произвольный цвет" value={color} onChange={(event) => onSelect(event.target.value)} />
-            <code aria-label="HEX-код">{color.toUpperCase()}</code>
-          </div>
+          {customOpen ? (
+            <HsvColorEditor initialColor={color} onCancel={() => setCustomOpen(false)} onApply={(next) => {
+              onSelect(next);
+              setCustomOpen(false);
+              setOpen(false);
+            }} />
+          ) : (
+            <div className="palette-custom-row">
+              <button type="button" className="palette-custom-toggle" onClick={() => {
+                setCustomOpen(true);
+                setPlacement((current) => ({ ...current, top: Math.min(current.top, Math.max(12, window.innerHeight - 430)) }));
+              }}>Свой цвет</button>
+              <span className="palette-preview" style={{ backgroundColor: color }} aria-hidden="true" />
+              <code aria-label="HEX-код">{color.toUpperCase()}</code>
+            </div>
+          )}
           <button
             type="button"
             className="palette-save"

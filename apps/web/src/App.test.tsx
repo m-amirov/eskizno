@@ -67,6 +67,36 @@ describe('Эскизно — оболочка приложения', () => {
     expect(canvas.height).toBe(768);
   });
 
+  it('предупреждает перед очисткой рисунка, позволяет отменить и восстановить штрихи', () => {
+    const originalRect = HTMLCanvasElement.prototype.getBoundingClientRect;
+    HTMLCanvasElement.prototype.getBoundingClientRect = () => ({
+      x: 0, y: 0, left: 0, top: 0, right: 1024, bottom: 768, width: 1024, height: 768, toJSON: () => ({}),
+    });
+    try {
+      render(<App />);
+      fireEvent.click(screen.getByRole('button', { name: 'Свободная студия' }));
+      const clear = screen.getByRole('button', { name: 'Очистить' }) as HTMLButtonElement;
+      expect(clear.disabled).toBe(true);
+      const canvas = screen.getByRole('img', { name: 'Холст для рисования' });
+      fireEvent.pointerDown(canvas, { pointerId: 10, pointerType: 'mouse', button: 0, clientX: 200, clientY: 200 });
+      fireEvent.pointerUp(canvas, { pointerId: 10, pointerType: 'mouse', clientX: 205, clientY: 205 });
+      expect(screen.getByText('Штрихов: 1')).toBeTruthy();
+      fireEvent.click(clear);
+      expect(screen.getByRole('alertdialog')).toBeTruthy();
+      expect(screen.getByText('Штрихов: 1')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Отмена очистки' }));
+      expect(screen.queryByRole('alertdialog')).toBeNull();
+      expect(screen.getByText('Штрихов: 1')).toBeTruthy();
+      fireEvent.click(clear);
+      fireEvent.click(screen.getByRole('button', { name: 'Очистить рисунок' }));
+      expect(screen.getByText('Штрихов: 0')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Отменить' }));
+      expect(screen.getByText('Штрихов: 1')).toBeTruthy();
+    } finally {
+      HTMLCanvasElement.prototype.getBoundingClientRect = originalRect;
+    }
+  });
+
   it('не сохраняет незавершённый штрих после pointercancel', () => {
     const originalRect = HTMLCanvasElement.prototype.getBoundingClientRect;
     HTMLCanvasElement.prototype.getBoundingClientRect = () => ({
