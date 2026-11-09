@@ -91,6 +91,28 @@ test('панель инструментов держит целые группы
   }
 });
 
+test('слои на телефоне раскрываются компактно и показывают выбранный слой без дублирования', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+
+  const toggle = page.getByRole('button', { name: 'Слои (1) · развернуть' });
+  await expect(toggle).toHaveText('Слои (1)');
+  await expect(toggle.locator('svg')).toBeVisible();
+  await toggle.click();
+  await page.getByRole('button', { name: 'Добавить слой' }).click();
+
+  const selected = page.getByRole('button', { name: 'Слой 2 · выбран' });
+  await expect(selected).toHaveText('Слой 2');
+  const row = page.locator('.layer-row.selected');
+  await expect(row.getByRole('button', { name: 'Действия со слоем Слой 2' }).locator('svg')).toBeVisible();
+  await expect(row.getByRole('button', { name: 'Перетащить Слой 2' }).locator('svg')).toBeVisible();
+  const note = page.getByRole('note');
+  await expect(note).toContainText('после перезагрузки он исчезнет');
+  expect((await note.boundingBox())?.height).toBeLessThan(65);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+});
+
 test('обычная студия вмещает холст и строку состояния без прокрутки страницы', async ({ page }) => {
   for (const viewport of [
     { width: 1440, height: 900 },

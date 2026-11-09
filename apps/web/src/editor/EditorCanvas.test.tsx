@@ -12,6 +12,18 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it('показывает компактный заголовок слоёв и честное предупреждение о несохранённом рисунке', () => {
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
+    const toggle = screen.getByRole('button', { name: 'Слои (1) · развернуть' });
+    expect(toggle.textContent?.trim()).toBe('Слои (1)');
+    expect(toggle.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    expect(screen.getByRole('note').textContent).toMatch(/после перезагрузки.*исчезнет/);
+    expect(screen.queryByText('Удерживайте фигуру 0,5 с, чтобы переместить')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Фигуры' }));
+    expect(screen.getByText('Удерживайте фигуру 0,5 с, чтобы переместить')).toBeTruthy();
+  });
+
   it('объединяет инструменты, действия и настройки в устойчивые группы', () => {
     render(<EditorCanvas history={createProjectHistory(createProject())}
       onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);

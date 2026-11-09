@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 
 import { clientToNormalized, INITIAL_VIEW, normalizedWheelDelta, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState } from './geometry';
 import type { ProjectHistory } from './history';
@@ -65,6 +65,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const [focusMode, setFocusMode] = useState(false);
   const [canvasDisplayWidth, setCanvasDisplayWidth] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const layersBodyId = useId();
   const confirmClearButtonRef = useRef<HTMLButtonElement>(null);
   const immersive = nativeFullscreen || focusMode;
   const active = project.layers.find((layer) => layer.id === project.activeLayerId);
@@ -477,7 +478,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         <div className="canvas-footer">
           <span>Штрихов: {pointCount}</span>
           <span>Фигур и заливок: {contentCount - pointCount}</span>
-          <span className="interaction-hint">Удерживайте фигуру 0,5 с, чтобы переместить</span>
+          {(tool === 'shape' || selectedShape) && <span className="interaction-hint">Удерживайте фигуру 0,5 с, чтобы переместить</span>}
           <div className="zoom-controls">
             <button type="button" aria-label="Уменьшить" title="Уменьшить" onClick={() => setView((current) => zoomView(current, current.zoom - 0.25))}><ToolIcon name="minus" /></button>
             <span aria-live="polite">{Math.round(view.zoom * 100)}%</span>
@@ -487,16 +488,16 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         </div>
       </div>
       <aside className="layers-panel" aria-label="Слои рисунка">
-        <button className="layers-toggle" type="button" aria-expanded={layersExpanded} onClick={() => setLayersExpanded((value) => !value)}>
-          Слои ({project.layers.length}) · {layersExpanded ? 'свернуть' : 'развернуть'}
+        <button className="layers-toggle" type="button" aria-expanded={layersExpanded} aria-controls={layersBodyId} aria-label={`Слои (${project.layers.length}) · ${layersExpanded ? 'свернуть' : 'развернуть'}`} onClick={() => setLayersExpanded((value) => !value)}>
+          <span>Слои ({project.layers.length})</span><ToolIcon name="chevron" />
         </button>
-        <div className={layersExpanded ? 'layers-body open' : 'layers-body'}>
-          <h3>Слои</h3>
-          <p className="layers-hint">Верхний слой перекрывает нижний. Ластик действует только на выбранный слой.</p>
+        <div id={layersBodyId} className={layersExpanded ? 'layers-body open' : 'layers-body'}>
+          <div className="layers-panel-heading"><h3>Слои</h3><span className="layers-total">{project.layers.length} / {MAX_LAYERS}</span></div>
+          <p className="layers-hint">Выберите слой для рисования. Верхний перекрывает нижний.</p>
           <LayerList layers={project.layers} activeLayerId={project.activeLayerId} onAction={onAction} />
           <button className="secondary-button add-layer" type="button" onClick={addLayer} disabled={project.layers.length >= MAX_LAYERS}>Добавить слой</button>
           {!canDraw && <p className="layers-hint" role="status">Выбранный слой скрыт или заблокирован.</p>}
-          <p className="draft-warning" role="note">Черновик пока хранится только до перезагрузки страницы. Сохранение появится на следующем этапе.</p>
+          <p className="draft-warning" role="note">Рисунок пока не сохраняется: после перезагрузки он исчезнет.</p>
         </div>
       </aside>
       {confirmClear && (

@@ -1,5 +1,5 @@
 type ToolIconName = 'brush' | 'eraser' | 'bucket' | 'shapes' | 'palette' | 'undo' | 'redo'
-  | 'trash' | 'maximize' | 'minimize' | 'plus' | 'minus' | 'reset' | 'chevron';
+  | 'trash' | 'maximize' | 'minimize' | 'plus' | 'minus' | 'reset' | 'chevron' | 'more' | 'grip';
 
 /** Small, dependency-free line icons. The containing button supplies the accessible name. */
 export function ToolIcon({ name }: { name: ToolIconName }) {
@@ -18,6 +18,8 @@ export function ToolIcon({ name }: { name: ToolIconName }) {
     minus: <path d="M5 12h14" />,
     reset: <><path d="M3 11a9 9 0 1 1 2 7" /><path d="M3 4v7h7" /></>,
     chevron: <path d="m7 10 5 5 5-5" />,
+    more: <><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></>,
+    grip: <><circle cx="8" cy="5" r="1.1" /><circle cx="16" cy="5" r="1.1" /><circle cx="8" cy="12" r="1.1" /><circle cx="16" cy="12" r="1.1" /><circle cx="8" cy="19" r="1.1" /><circle cx="16" cy="19" r="1.1" /></>,
   } satisfies Record<ToolIconName, React.ReactNode>;
   return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">

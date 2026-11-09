@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { createPortal } from 'react-dom';
 
 import type { Layer, ProjectAction } from './model';
+import { ToolIcon } from './ToolIcon';
 
 interface LayerListProps {
   layers: readonly Layer[];
@@ -186,13 +187,13 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
               onBlur={() => { if (draftLayerName.trim()) finishRename(true); else finishRename(false); }}
             />
           ) : (
-            <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === activeLayerId}>
-              {layer.name}{layer.id === activeLayerId ? ' · выбран' : ''}
+            <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === activeLayerId} aria-label={`${layer.name}${layer.id === activeLayerId ? ' · выбран' : ''}`}>
+              {layer.name}
             </button>
           )}
           <button type="button" className="layer-visibility-button" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} ${layer.name}`} aria-pressed={layer.visible} onClick={() => onAction({ type: 'setLayerVisibility', layerId: layer.id, visible: !layer.visible })}><EyeIcon visible={layer.visible} /></button>
           <button type="button" className="layer-menu-trigger" aria-label={`Действия со слоем ${layer.name}`} aria-haspopup="menu" aria-expanded={openMenuId === layer.id} onClick={(event) => openMenu(layer, event.currentTarget)}>
-            <span aria-hidden="true">⋯</span>
+            <ToolIcon name="more" />
           </button>
           <button
             type="button"
@@ -207,7 +208,7 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
             onPointerCancel={resetDrag}
             onKeyDown={keyDown(layer)}
           >
-            <span aria-hidden="true">⠿</span>
+            <ToolIcon name="grip" />
           </button>
         </div>
       ))}

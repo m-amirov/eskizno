@@ -41,6 +41,18 @@ function layoutRows() {
 }
 
 describe('перетаскивание слоёв', () => {
+  it('показывает название активного слоя без лишнего слова и рисует иконки действий', () => {
+    render(<Harness />);
+    const selected = screen.getByRole('button', { name: 'Слой 1 · выбран' });
+    expect(selected.textContent).toBe('Слой 1');
+    expect(selected.getAttribute('aria-pressed')).toBe('true');
+    for (const name of ['Действия со слоем Верхний', 'Перетащить Верхний']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+      expect(button.textContent?.trim()).toBe('');
+    }
+  });
+
   it('переименовывает слой из меню, выделяет исходное имя и поддерживает отмену', () => {
     render(<Harness />);
     const trigger = screen.getByRole('button', { name: 'Действия со слоем Верхний' });
