@@ -1,6 +1,7 @@
 import {
   createDocument, createHistory, clientToNormalized, addStroke, eraseAt,
   undo, redo, changeStep, changeMode, changeAudience, restoreDocument,
+  screenToArtboard, zoomView, pinchView,
 } from './core.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -36,6 +37,9 @@ let tool = 'brush';
 let brush = { color: '#252a2c', width: 3 };
 let draft = null;
 let pointerId = null;
+const activePointers = new Map();
+let pinching = false;
+let view = { zoom: 1, panX: 0, panY: 0 };
 let frameWidth = 700;
 let frameHeight = 525;
 let saveTimer;
@@ -117,9 +121,14 @@ function drawStroke(ctx, stroke, width, height) {
 function paint(ctx, width, height, includeGuides = true) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  ctx.translate(width * (0.5 + view.panX), height * (0.5 + view.panY));
+  ctx.scale(view.zoom, view.zoom);
+  ctx.translate(-width / 2, -height / 2);
   if (includeGuides) drawGuides(ctx, width, height, doc.mode, doc.step);
   for (const stroke of history.present) if (stroke.step <= doc.step) drawStroke(ctx, stroke, width, height);
   if (draft) drawStroke(ctx, draft, width, height);
+  ctx.restore();
 }
 
 function render() {
@@ -172,7 +181,31 @@ function pickTool(nextTool) {
 
 function applyHistory(next) { history = next; syncDocument(); render(); }
 
-function pointerPoint(event) { return clientToNormalized(event.clientX, event.clientY, canvas.getBoundingClientRect()); }
+function canvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) return null;
+  return clientToNormalized(event.clientX, event.clientY, rect);
+}
+
+function pointerPoint(event) { return screenToArtboard(canvasPoint(event), view); }
+
+function updateZoomUI() {
+  $('zoom-reset').textContent = `${Math.round(view.zoom * 100)}%`;
+  $('zoom-out').disabled = view.zoom <= 1;
+  $('zoom-in').disabled = view.zoom >= 4;
+}
+
+function setZoom(nextZoom, anchor) {
+  view = zoomView(view, nextZoom, anchor);
+  updateZoomUI();
+  render();
+}
+
+function updatePinch(previousPoints, currentPoints) {
+  view = pinchView(view, previousPoints, currentPoints);
+  updateZoomUI();
+  render();
+}
 
 function erasePointer(event) {
   const point = pointerPoint(event);
@@ -189,25 +222,52 @@ function appendPoint(event) {
 }
 
 canvas.addEventListener('pointerdown', (event) => {
-  if (pointerId !== null || (event.pointerType === 'mouse' && event.button !== 0)) return;
-  pointerId = event.pointerId;
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  const position = canvasPoint(event);
+  if (!position) return;
+  activePointers.set(event.pointerId, position);
+  if (activePointers.size > 2) return;
   try { canvas.setPointerCapture(event.pointerId); } catch { /* Not all synthetic pointers allow capture. */ }
-  if (tool === 'eraser') { erasePointer(event); return; }
+  if (activePointers.size === 2) {
+    pinching = true;
+    draft = null;
+    pointerId = null;
+    render();
+    return;
+  }
+  if (pinching || pointerId !== null) return;
+  pointerId = event.pointerId;
+  if (tool === 'eraser') { if (event.pointerType !== 'touch') erasePointer(event); return; }
   draft = { id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()), step: doc.step, color: brush.color, width: brush.width, points: [] };
   appendPoint(event);
   render();
 });
 
 canvas.addEventListener('pointermove', (event) => {
+  if (activePointers.has(event.pointerId)) {
+    const before = [...activePointers.values()].slice(0, 2);
+    activePointers.set(event.pointerId, clientToNormalized(event.clientX, event.clientY, canvas.getBoundingClientRect()));
+    if (pinching && activePointers.size >= 2) {
+      updatePinch(before, [...activePointers.values()].slice(0, 2));
+      return;
+    }
+  }
+  if (pinching) return;
   if (pointerId !== event.pointerId) return;
-  if (tool === 'eraser') { erasePointer(event); return; }
+  if (tool === 'eraser') { if (event.pointerType !== 'touch') erasePointer(event); return; }
   const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
   for (const sample of (events.length ? events : [event])) appendPoint(sample);
   render();
 });
 
 function finishPointer(event, cancelled = false) {
+  activePointers.delete(event.pointerId);
+  if (pinching) {
+    if (activePointers.size === 0) pinching = false;
+    return;
+  }
   if (pointerId !== event.pointerId) return;
+  if (tool === 'eraser' && event.pointerType === 'touch' && !cancelled) erasePointer(event);
   if (draft && !cancelled) {
     appendPoint(event);
     applyHistory(addStroke(history, draft));
@@ -219,6 +279,16 @@ function finishPointer(event, cancelled = false) {
 canvas.addEventListener('pointerup', (event) => finishPointer(event));
 canvas.addEventListener('pointercancel', (event) => finishPointer(event, true));
 canvas.addEventListener('lostpointercapture', (event) => finishPointer(event, true));
+
+canvas.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  const anchor = canvasPoint(event);
+  if (anchor) setZoom(view.zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1), anchor);
+}, { passive: false });
+
+$('zoom-in').addEventListener('click', () => setZoom(view.zoom * 1.25));
+$('zoom-out').addEventListener('click', () => setZoom(view.zoom / 1.25));
+$('zoom-reset').addEventListener('click', () => setZoom(1));
 
 $('tool-brush').addEventListener('click', () => pickTool('brush'));
 $('tool-eraser').addEventListener('click', () => pickTool('eraser'));
@@ -278,3 +348,4 @@ document.addEventListener('keydown', (event) => {
 new ResizeObserver(adjustCanvas).observe(stage);
 refreshUI();
 pickTool('brush');
+updateZoomUI();
