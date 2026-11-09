@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 
 import { hexToHsv, hsvToHex, parseHexColor, type HsvColor } from './color';
 
@@ -6,11 +7,12 @@ interface HsvColorEditorProps {
   initialColor: string;
   onApply: (color: string) => void;
   onCancel: () => void;
+  actionsHost?: HTMLElement | null;
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
-export function HsvColorEditor({ initialColor, onApply, onCancel }: HsvColorEditorProps) {
+export function HsvColorEditor({ initialColor, onApply, onCancel, actionsHost }: HsvColorEditorProps) {
   const [hsv, setHsv] = useState(() => hexToHsv(initialColor));
   const [hex, setHex] = useState(() => parseHexColor(initialColor) ?? '#000000');
   const activePointer = useRef<{ id: number; surface: 'square' | 'hue' } | null>(null);
@@ -64,6 +66,13 @@ export function HsvColorEditor({ initialColor, onApply, onCancel }: HsvColorEdit
     changeHsv({ ...hsv, h: Math.min(360, Math.max(0, hsv.h + (['ArrowDown', 'ArrowRight'].includes(event.key) ? step : -step))) });
   };
 
+  const actions = (
+    <div className="hsv-actions">
+      <button type="button" onClick={onCancel}>Отмена</button>
+      <button type="button" className="hsv-apply" disabled={!normalizedHex} onClick={() => { if (normalizedHex) onApply(normalizedHex); }}>Применить</button>
+    </div>
+  );
+
   return (
     <div className="hsv-editor" aria-label="Редактор своего цвета">
       <div className="hsv-picker-row">
@@ -113,10 +122,7 @@ export function HsvColorEditor({ initialColor, onApply, onCancel }: HsvColorEdit
         const valid = parseHexColor(next);
         if (valid) setHsv(hexToHsv(valid));
       }} />
-      <div className="hsv-actions">
-        <button type="button" onClick={onCancel}>Отмена</button>
-        <button type="button" className="hsv-apply" disabled={!normalizedHex} onClick={() => { if (normalizedHex) onApply(normalizedHex); }}>Применить</button>
-      </div>
+      {actionsHost === undefined ? actions : actionsHost ? createPortal(actions, actionsHost) : null}
     </div>
   );
 }

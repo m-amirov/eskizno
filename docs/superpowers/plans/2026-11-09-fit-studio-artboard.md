@@ -37,7 +37,7 @@
 - [x] **Step 2:** Unit с отсутствующей реализацией завершился FAIL; интеграционный тест на старом fullscreen-only условии завершился FAIL (`''` вместо `768px`).
 - [x] **Step 3:** GREEN: адаптированы ResizeObserver, inline width и CSS высот/overflow, добавлен scroll-fallback до 700px по высоте. Пиксельный размер и input geometry не менялись.
 - [x] **Step 4:** Unit suite, build, diff check; Playwright E2E запущен, но Chromium падает до открытия страницы (`socket() failed: Operation not permitted`) — browser gate остаётся открытым.
-- [ ] **Step 5:** Зафиксировать и отправить изменения в `feat/e1-3-canvas-render` для Draft PR #10 (без merge).
+- [x] **Step 5:** Зафиксировать и отправить изменения в `feat/e1-3-canvas-render` для Draft PR #10 (без merge), commit `eb937b2`.
 
 ## Verification evidence
 

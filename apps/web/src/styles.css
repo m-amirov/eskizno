@@ -150,35 +150,38 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .palette-icon-color { position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; border: 1px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #bdc9ba; }
 .palette-trigger:hover, .palette-trigger.selected { background: #edf4ed; border-color: #a7c0ae; }
 .palette-preview { display: block; width: 24px; height: 24px; border-radius: 7px; box-shadow: 0 0 0 1px rgba(23,42,31,.2); }
-.palette-popover { position: fixed; z-index: 30; box-sizing: border-box; width: min(312px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; background: #fff; border: 1px solid #dae4da; border-radius: 16px; box-shadow: 0 18px 55px rgba(28,46,35,.2), 0 3px 10px rgba(28,46,35,.06); padding: 19px; }
-.palette-popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.palette-popover { position: fixed; z-index: 30; display: flex; flex-direction: column; box-sizing: border-box; width: min(332px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; background: #fff; border: 1px solid #dae4da; border-radius: 16px; box-shadow: 0 18px 55px rgba(28,46,35,.2), 0 3px 10px rgba(28,46,35,.06); }
+.palette-popover-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 15px; padding: 15px 16px 6px; }
 .palette-popover-heading strong { font-size: 16px; font-weight: 670; color: #243c2d; letter-spacing: -.025em; }
 .palette-close { border: 0; background: transparent; color: #758779; padding: 0 4px; font-size: 23px; line-height: 1; }
-.palette-caption { margin: 6px 0 18px; font-size: 12px; color: #748277; line-height: 1.5; }
-.palette-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 21px; }
-.palette-section-title { font-size: 12px; font-weight: 680; color: #526c5b; margin: 0 0 11px; }
-.palette-recent { padding-bottom: 15px; border-bottom: 1px solid #e6ece5; margin-bottom: 15px; }
-.palette-saved { margin-bottom: 4px; }
-.palette-swatch { display: block; min-width: 0; width: 100%; aspect-ratio: 1; border: 1px solid #d9e2da; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); transition: transform 120ms ease; }
+.palette-popover-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 13px; scrollbar-width: thin; }
+.palette-caption { margin: 5px 0 13px; font-size: 12px; color: #748277; line-height: 1.5; }
+.palette-swatches { display: flex; gap: 10px; overflow-x: auto; padding: 4px 3px 8px; scrollbar-width: thin; }
+.palette-section-title { font-size: 12px; font-weight: 680; color: #526c5b; margin: 0 0 7px; }
+.palette-recent { padding-bottom: 11px; border-bottom: 1px solid #e6ece5; margin-bottom: 11px; }
+.palette-saved { margin-bottom: 3px; }
+.palette-swatch { display: block; flex: 0 0 31px; width: 31px; height: 31px; border: 1px solid #d9e2da; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); transition: transform 120ms ease; }
 .palette-swatch:hover { transform: scale(1.13); }
 .palette-swatch.active { outline: 2px solid #315c46; outline-offset: 3px; }
-.hsv-editor { margin-top: 13px; border-top: 1px solid #e6ece5; padding-top: 16px; }
-.hsv-picker-row { display: flex; gap: 12px; height: 175px; }
+.hsv-editor { margin-top: 10px; border-top: 1px solid #e6ece5; padding-top: 13px; }
+.hsv-picker-row { display: flex; gap: 12px; height: 156px; }
 .hsv-square { position: relative; flex: 1; min-width: 0; cursor: crosshair; touch-action: none; background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent); border: 1px solid #d1d9d0; border-radius: 7px; }
 .hsv-square-marker { position: absolute; width: 13px; height: 13px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #222, 0 1px 4px #2228; transform: translate(-50%, -50%); pointer-events: none; }
 .hsv-hue { position: relative; width: 23px; flex: 0 0 23px; touch-action: none; cursor: ns-resize; border-radius: 5px; background: linear-gradient(to bottom, #f00 0%, #ff0 16.67%, #0f0 33.33%, #0ff 50%, #00f 66.67%, #f0f 83.33%, #f00 100%); }
 .hsv-hue-marker { position: absolute; left: -4px; right: -4px; height: 7px; border: 2px solid #fff; border-radius: 3px; box-shadow: 0 0 0 1px #3338; transform: translateY(-50%); pointer-events: none; }
-.hsv-preview-row { display: flex; gap: 12px; margin: 15px 0; }
+.hsv-preview-row { display: flex; gap: 12px; margin: 12px 0; }
 .hsv-preview-label { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 9px; color: #6a796e; font-size: 12px; }
 .hsv-preview-label i { width: 42px; height: 30px; border-radius: 6px; border: 1px solid #bfcbbf; }
 .hsv-hex-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 650; color: #405647; }
 .hsv-hex-input { width: 100%; box-sizing: border-box; border-radius: 7px; border: 1px solid #b7c6b9; padding: 8px 10px; font: 13px ui-monospace, Consolas, monospace; }
 .hsv-hex-input[aria-invalid='true'] { border-color: #b8544f; }
+.palette-popover-footer { flex: 0 0 auto; padding: 10px 16px 14px; border-top: 1px solid #e6ece5; background: #fff; }
 .hsv-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 13px; }
+.palette-actions-host .hsv-actions { margin: 0; }
 .hsv-actions button { border: 1px solid #d1dfd1; background: #fff; color: #375543; border-radius: 7px; padding: 8px 13px; cursor: pointer; }
 .hsv-actions .hsv-apply { background: #315c46; color: white; border-color: #315c46; }
 .hsv-actions .hsv-apply:disabled { opacity: .4; cursor: default; }
-.palette-save { width: 100%; margin-top: 16px; padding: 10px 12px; border: 1px solid #b9cdbb; border-radius: 9px; background: #edf5ec; color: #315c46; font-weight: 650; font-size: 13px; }
+.palette-save { width: 100%; margin-top: 9px; padding: 9px 12px; border: 1px solid #b9cdbb; border-radius: 9px; background: #edf5ec; color: #315c46; font-weight: 650; font-size: 13px; }
 .palette-save:hover:not(:disabled) { background: #e0f0df; }
 .palette-save:disabled { opacity: .4; cursor: default; }
 .studio-control input[type='range'] { width: 87px; accent-color: #315c46; }

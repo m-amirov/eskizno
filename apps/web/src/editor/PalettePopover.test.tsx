@@ -104,6 +104,42 @@ describe('всплывающая палитра', () => {
     expect((screen.getByRole('button', { name: 'Сохранить цвет' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('держит применение, отмену и сохранение цвета в неподвижной нижней панели', () => {
+    render(<PaletteHarness />);
+    fireEvent.click(screen.getByRole('button', { name: /Палитра/ }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Палитра цветов' });
+    const footer = dialog.querySelector('.palette-popover-footer');
+    const scrollableContent = dialog.querySelector('.palette-popover-scroll');
+    expect(footer).not.toBeNull();
+    expect(scrollableContent).not.toBeNull();
+    expect(footer?.contains(screen.getByRole('button', { name: 'Применить' }))).toBe(true);
+    expect(footer?.contains(screen.getByRole('button', { name: 'Отмена' }))).toBe(true);
+    expect(footer?.contains(screen.getByRole('button', { name: 'Сохранить цвет' }))).toBe(true);
+    expect(scrollableContent?.contains(screen.getByRole('slider', { name: 'Оттенок' }))).toBe(true);
+  });
+
+  it('пересчитывает границы открытой палитры при изменении высоты окна', () => {
+    const previousHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 760 });
+    try {
+      render(<PaletteHarness />);
+      const toggle = screen.getByRole('button', { name: /Палитра/ });
+      toggle.getBoundingClientRect = () => ({ x: 70, y: 140, top: 140, left: 70, right: 110, bottom: 180, width: 40, height: 40, toJSON: () => ({}) });
+      fireEvent.click(toggle);
+      const dialog = screen.getByRole('dialog', { name: 'Палитра цветов' }) as HTMLDivElement;
+      const initialTop = parseFloat(dialog.style.top);
+      expect(initialTop).toBeGreaterThan(12);
+
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: 390 });
+      fireEvent(window, new Event('resize'));
+      expect(parseFloat(dialog.style.top)).toBeLessThan(initialTop);
+      expect(parseFloat(dialog.style.top) + parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(378);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: previousHeight });
+    }
+  });
+
   it('оставляет расширенный редактор внутри узкого окна браузера', () => {
     const previousHeight = window.innerHeight;
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 480 });

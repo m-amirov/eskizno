@@ -170,6 +170,35 @@ test('HSV открыт сразу, а очистка рисунка обрати
   await expect(page.getByText('Штрихов: 1')).toBeVisible();
 });
 
+test('палитра сохраняет видимые действия на мобильном и обычном экране', async ({ page }) => {
+  for (const viewport of [{ width: 390, height: 600 }, { width: 1305, height: 764 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Свободная студия' }).click();
+    await page.getByRole('button', { name: /Палитра, выбран/ }).click();
+
+    const palette = page.getByRole('dialog', { name: 'Палитра цветов' });
+    const footer = palette.locator('.palette-popover-footer');
+    const scrollArea = palette.locator('.palette-popover-scroll');
+    await expect(footer.getByRole('button', { name: 'Отмена' })).toBeInViewport();
+    await expect(footer.getByRole('button', { name: 'Применить' })).toBeInViewport();
+    await expect(footer.getByRole('button', { name: 'Сохранить цвет' })).toBeInViewport();
+    expect(await scrollArea.evaluate((node) => getComputedStyle(node).overflowY)).toBe('auto');
+    const bounds = await palette.boundingBox();
+    expect(bounds).not.toBeNull();
+    if (!bounds) return;
+    expect(bounds.x).toBeGreaterThanOrEqual(11);
+    expect(bounds.y).toBeGreaterThanOrEqual(11);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width - 11);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - 11);
+
+    await palette.getByRole('textbox', { name: 'HEX' }).fill('#aabbcc');
+    await expect(footer.getByRole('button', { name: 'Применить' })).toBeInViewport();
+    await footer.getByRole('button', { name: 'Применить' }).click();
+    await expect(page.getByRole('button', { name: /Палитра, выбран #AABBCC/ })).toBeVisible();
+  }
+});
+
 test('недавний цвет выбирается без закрытия палитры, глазок и меню управляют слоем', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Свободная студия' }).click();
