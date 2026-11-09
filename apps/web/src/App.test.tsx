@@ -14,6 +14,16 @@ describe('Эскизно — оболочка приложения', () => {
     expect(screen.getByRole('button', { name: 'Мои работы' })).toBeTruthy();
   });
 
+  it('показывает учебный этюд и честно отделяет доступную студию от будущих уроков', () => {
+    render(<App />);
+
+    const sketch = screen.getByRole('img', { name: 'Линейный этюд шара с направляющими и штриховкой' });
+    expect(sketch.querySelector('svg.intro-study')).toBeTruthy();
+    expect(screen.getByText(/Пошаговые уроки появятся позже/)).toBeTruthy();
+    expect(screen.queryByText(/Учебный холст и первые упражнения появятся здесь/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Открыть свободную студию' })).toBeTruthy();
+  });
+
   it('переходит в студию, затем в список работ без перезагрузки страницы', () => {
     render(<App />);
 

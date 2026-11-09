@@ -54,17 +54,17 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .section-kicker { color: #507060; font-weight: 650; font-size: 13px; letter-spacing: .01em; margin: 0 0 20px; }
 
 .intro-page {
-  min-height: min(760px, calc(100vh - 72px));
+  min-height: min(680px, calc(100dvh - 72px));
   display: grid;
-  grid-template-columns: minmax(300px, .83fr) minmax(420px, 1.17fr);
+  grid-template-columns: minmax(300px, .9fr) minmax(420px, 1.1fr);
   align-items: center;
-  gap: clamp(40px, 5vw, 100px);
-  padding: 64px 0 84px;
+  gap: clamp(36px, 5vw, 90px);
+  padding: 48px 0 66px;
 }
 
 .intro-copy { max-width: 560px; }
-.intro-copy h2 { font-size: clamp(42px, 4.4vw, 72px); line-height: 1.06; letter-spacing: -.055em; font-weight: 590; margin: 0 0 27px; }
-.lead-text { font-size: clamp(16px, 1.3vw, 19px); line-height: 1.7; color: #53655b; max-width: 480px; margin: 0 0 32px; }
+.intro-copy h2 { font-size: clamp(40px, 3.5vw, 58px); line-height: 1.09; letter-spacing: -.045em; font-weight: 590; margin: 0 0 23px; max-width: 530px; }
+.lead-text { font-size: clamp(16px, 1.3vw, 18px); line-height: 1.65; color: #53655b; max-width: 480px; margin: 0 0 28px; }
 
 .primary-button, .secondary-button { border-radius: 9px; padding: 14px 20px; font-weight: 610; font-size: 14px; }
 .primary-button { background: #315c46; color: #ffffff; border: 1px solid #315c46; }
@@ -74,18 +74,21 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 
 .intro-preview { display: grid; gap: 17px; }
 .intro-preview-paper {
-  min-height: clamp(350px, 42vw, 540px);
+  aspect-ratio: 4 / 3;
   background: #fffcf6;
   border: 1px solid #ebe6d9;
   box-shadow: 0 16px 42px rgba(44, 58, 43, .06);
-  position: relative;
   overflow: hidden;
 }
 .intro-preview p { margin: 0; font-size: 13px; color: #708076; }
-.preview-line { display: block; position: absolute; border: 2px solid #b0c1b5; width: 47%; height: 46%; border-radius: 50%; transform: rotate(-20deg); opacity: .75; }
-.preview-line-one { top: 19%; left: 15%; border-right-color: transparent; }
-.preview-line-two { top: 28%; left: 37%; border-left-color: transparent; transform: rotate(32deg); }
-.preview-circle { position: absolute; width: 13%; aspect-ratio: 1; border: 1.5px solid #c5a67d; border-radius: 50%; top: 27%; left: 30%; opacity: .8; }
+.intro-study { display: block; width: 100%; height: 100%; }
+.intro-study :is(path, circle) { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.intro-study-baseline { stroke: #b0c1b5; stroke-width: 1.6; }
+.intro-study-shadow { stroke: #c5a67d; stroke-width: 1.7; opacity: .75; }
+.intro-study-outline { stroke: #446757; stroke-width: 2.3; }
+.intro-study-guide { stroke: #b0c1b5; stroke-dasharray: 5 9; stroke-width: 1.2; }
+.intro-study-contour { stroke: #446757; stroke-width: 1.5; opacity: .65; }
+.intro-study-hatch { stroke: #446757; stroke-width: 1.6; opacity: .48; }
 
 .workspace-page { padding: 52px 0 68px; }
 .app-shell-studio .workspace-page { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 18px 0; }
@@ -272,7 +275,7 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .nav-button { flex: 1; padding: 9px 8px; }
   .intro-page { grid-template-columns: 1fr; padding-top: 52px; gap: 38px; }
   .intro-copy h2 { max-width: 640px; }
-  .intro-preview-paper { min-height: 330px; }
+  .intro-preview-paper { max-width: 660px; }
   .studio-layout { grid-template-columns: 1fr; }
   .toolbar-actions { order: 3; }
   .toolbar-brush-settings { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -301,7 +304,7 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .nav-button { font-size: 12px; }
   .intro-page { padding: 38px 0 56px; }
   .intro-copy h2 { font-size: 42px; }
-  .intro-preview-paper { min-height: 270px; }
+  .intro-preview-paper { max-width: 100%; }
   .empty-projects { grid-template-columns: 1fr; gap: 25px; margin-top: 23px; padding-top: 30px; }
   .empty-projects-art { min-height: 175px; place-items: center start; padding-left: 12px; }
   .empty-projects-paper { width: 190px; }
