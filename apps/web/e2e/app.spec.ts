@@ -23,7 +23,7 @@ test('пустая галерея остаётся компактной на т�
 
   const gallery = page.getByRole('region', { name: 'Здесь пока нет работ' });
   await expect(gallery).toBeVisible();
-  await expect(gallery.getByText(/после перезагрузки рисунок исчезнет/i)).toBeVisible();
+  await expect(gallery.getByText(/рисунки появятся здесь после сохранения/i)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Перейти в студию' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

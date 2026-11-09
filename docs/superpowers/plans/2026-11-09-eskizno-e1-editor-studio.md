@@ -121,12 +121,14 @@
 
 **Interfaces:** `openProjectDb(): Promise<IDBDatabase>`, `saveProject(db, project, assets): Promise<void>`, `loadProject(db, id): Promise<SavedProject|null>`, `listProjects(db): Promise<ProjectSummary[]>`, `deleteProject(db,id): Promise<void>`, `migrateLegacyV1(db, raw): Promise<string|null>`; stores `projects`, `assets` с versioned IndexedDB schema.
 
-- [ ] **Step 1 — RED:** `persistence.test.ts` с IndexedDB polyfill: save/load полностью восстанавливает layers/opacity/image Blob; `saveProgress/loadProgress` хранит локальное состояние прогресса отдельно от проекта, корректно восстанавливает пустое значение и не дублирует ID достижений; транзакция ошибки не помечается успешной; `migrateLegacyV1` переносит документ из `eskizno:prototype:botanical-branch:v1` (не удаляет ключ), сохраняет `step`, `kind:'erase'`, порядок и не дублирует при повторном запуске; повреждённый JSON не разрушает галерею.
-- [ ] **Step 2 — verify RED:** `npm run test:unit -- src/editor/persistence.test.ts`; FAIL.
-- [ ] **Step 3 — implementation:** Реализовать асинхронное сохранение в IndexedDB атомарной транзакцией, debounce после изменённых состояний, идемпотентную миграцию через валидатор v1, UI состояния «Сохранение… / Сохранено / Не удалось сохранить», список проектов, открытие и подтверждённое удаление. Перенос v1 возможен только при доступности исходного `localStorage` в том же origin; при смене домена автоматический перенос не обещать.
-- [ ] **Step 4 — GREEN:** `npm run test:unit -- src/editor/persistence.test.ts`; PASS.
+- [x] **Step 1 — RED:** `persistence.test.ts` с IndexedDB polyfill: save/load полностью восстанавливает layers/opacity/image Blob; `saveProgress/loadProgress` хранит локальное состояние прогресса отдельно от проекта, корректно восстанавливает пустое значение и не дублирует ID достижений; транзакция ошибки не помечается успешной; `migrateLegacyV1` переносит документ из `eskizno:prototype:botanical-branch:v1` (не удаляет ключ), сохраняет `step`, `kind:'erase'`, порядок и не дублирует при повторном запуске; повреждённый JSON не разрушает галерею.
+- [x] **Step 2 — verify RED:** `npm run test:unit -- src/editor/persistence.test.ts`; FAIL до реализации.
+- [x] **Step 3 — implementation:** Реализовать асинхронное сохранение в IndexedDB атомарной транзакцией, debounce после изменённых состояний, идемпотентную миграцию через валидатор v1, UI состояния «Сохранение… / Сохранено / Не удалось сохранить», список проектов, открытие и подтверждённое удаление. Перенос v1 возможен только при доступности исходного `localStorage` в том же origin; при смене домена автоматический перенос не обещать.
+- [x] **Step 4 — GREEN:** `npm run test:unit -- src/editor/persistence.test.ts`; PASS (8/8). После ревью добавлены регрессии удаления мигрированного проекта, гонки Undo, сохранения пустой ревизии, повторного открытия базы, обновления превью и аварийного PNG.
 - [ ] **Step 5 — browser gate:** В `e2e/persistence.spec.ts` создать проект, нарисовать на двух слоях, перезагрузить, открыть из галереи и сравнить данные/пиксели; вызвать отказ IndexedDB и проверить отсутствие ложного индикатора сохранения. `npm run test:e2e -- e2e/persistence.spec.ts` — PASS.
-- [ ] **Step 6 — commit:** `git add apps/web && git commit -m "feat(eskizno): persist local layered projects"`.
+
+  **Блокер E1.5:** E2E-сценарии написаны, но в данном executor Chromium не стартует: системный `/usr/bin/chromium` завершается с `socket() failed: Operation not permitted (1)`; Playwright-bundled Chromium отсутствует. Gate не пройден, PR остаётся Draft.
+- [x] **Step 6 — commit:** `git add apps/web && git commit -m "feat(eskizno): persist local layered projects"`. Коммит подготовлен отдельно от `main`; browser gate (Step 5) остаётся открытым.
 
 ## Task E1.6: Режимы свободной студии и собственный эскиз
 

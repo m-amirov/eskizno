@@ -165,9 +165,10 @@ test('слои на телефоне раскрываются компактно
   const row = page.locator('.layer-row.selected');
   await expect(row.getByRole('button', { name: 'Действия со слоем Слой 2' }).locator('svg')).toBeVisible();
   await expect(row.getByRole('button', { name: 'Перетащить Слой 2' }).locator('svg')).toBeVisible();
-  const note = page.getByRole('note');
-  await expect(note).toContainText('после перезагрузки он исчезнет');
-  expect((await note.boundingBox())?.height).toBeLessThan(65);
+  const saveState = page.locator('.save-state');
+  await expect(saveState).toBeVisible();
+  await expect(saveState).toContainText(/Сохранено|Сохранение/);
+  expect((await saveState.boundingBox())?.height).toBeLessThan(65);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
 });
 

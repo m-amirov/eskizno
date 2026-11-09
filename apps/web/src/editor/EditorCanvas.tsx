@@ -12,6 +12,7 @@ import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
 import { fitCanvasWidth } from './canvasFit';
 import { normalizeToolSettings } from './brushes';
+import type { SaveStatus } from '../studio/useLocalProjects';
 
 type Tool = 'ink' | 'erase' | 'fill' | 'shape';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; stroke: Stroke };
@@ -40,6 +41,9 @@ interface EditorCanvasProps {
   onAction: (action: ProjectAction) => void;
   onUndo: () => void;
   onRedo: () => void;
+  saveStatus?: SaveStatus;
+  storageMessage?: string | null;
+  onRetry?: () => void;
 }
 
 function newId(): string {
@@ -48,10 +52,27 @@ function newId(): string {
     : `stroke-${Date.now()}-${Math.random()}`;
 }
 
-export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvasProps) {
+export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, storageMessage, onRetry }: EditorCanvasProps) {
   const project = history.present;
   const layoutRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const downloadEmergencyPng = () => {
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = project.width;
+    exportCanvas.height = project.height;
+    const context = exportCanvas.getContext('2d');
+    if (!context) return;
+    renderProject(context, project, new Map(), {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+    });
+    context.globalCompositeOperation = 'destination-over';
+    context.fillStyle = '#fffcf6';
+    context.fillRect(0, 0, project.width, project.height);
+    const link = document.createElement('a');
+    link.href = exportCanvas.toDataURL('image/png');
+    link.download = `${project.title.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 70) || 'eskizno'}.png`;
+    link.click();
+  };
   const stageRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const gestureProject = useRef(project);
@@ -555,8 +576,21 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
           <LayerList layers={project.layers} activeLayerId={project.activeLayerId} onAction={onAction} />
           <button className="secondary-button add-layer" type="button" onClick={addLayer} disabled={project.layers.length >= MAX_LAYERS}>Добавить слой</button>
           {!canDraw && <p className="layers-hint" role="status">Выбранный слой скрыт или заблокирован.</p>}
-          <p className="draft-warning" role="note">Рисунок пока не сохраняется: после перезагрузки он исчезнет.</p>
+          {!saveStatus && <p className="draft-warning" role="note">Рисунок пока не сохраняется: после перезагрузки он исчезнет.</p>}
         </div>
+        {saveStatus && (
+          <div className={saveStatus === 'error' ? 'save-state save-state-error' : 'save-state'} role="status" aria-live="polite">
+            <span>{saveStatus === 'loading' ? 'Проверяем сохранённые работы…'
+              : saveStatus === 'saving' ? 'Сохранение…'
+                : saveStatus === 'saved' ? 'Сохранено'
+                  : saveStatus === 'error' ? 'Не удалось сохранить' : 'Новый рисунок'}</span>
+            {storageMessage && <p>{storageMessage}</p>}
+            {saveStatus === 'error' && <div className="save-error-actions">
+              {onRetry && <button className="save-retry" type="button" onClick={onRetry}>Повторить сохранение</button>}
+              <button className="save-retry" type="button" onClick={downloadEmergencyPng}>Скачать PNG</button>
+            </div>}
+          </div>
+        )}
       </aside>
       {confirmClear && (
         <div className="clear-dialog-backdrop">
