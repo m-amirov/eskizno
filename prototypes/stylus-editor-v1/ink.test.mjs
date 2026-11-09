@@ -38,3 +38,15 @@ test('undo restores the pixels under the eraser and redo erases them again', { s
   draw(redo(undo(full)));
   assert.equal(pixel(canvas, 60, 40)[3], 0);
 });
+
+test('eraser width changes the erased area without deleting the rest of the stroke', { skip: !createCanvas && 'Pixel renderer not installed' }, () => {
+  const canvas = createCanvas(120, 80);
+  const erase = (width) => ink.renderInk(canvas.getContext('2d'), 120, 80, [
+    brush, { ...eraser, width },
+  ], view, 0);
+  erase(4);
+  assert.ok(pixel(canvas, 49, 40)[3] > 240, 'narrow eraser leaves nearby ink');
+  erase(40);
+  assert.equal(pixel(canvas, 49, 40)[3], 0, 'wide eraser clears nearby ink');
+  assert.ok(pixel(canvas, 20, 40)[3] > 240, 'distant ink is never deleted');
+});
