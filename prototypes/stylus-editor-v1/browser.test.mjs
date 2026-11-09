@@ -124,3 +124,30 @@ test('eraser paints a transparent path instead of deleting an entire ink stroke'
     assert.ok(restored < 100, 'undo restores crossed ink');
   } finally { await browser.close(); }
 });
+
+test('eraser size can be adjusted on mobile and is independent of the brush size', async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  try {
+    await page.goto(base);
+    await page.getByRole('button', { name: 'Ластик' }).click();
+    const size = page.getByRole('slider', { name: 'Размер инструмента' });
+    assert.ok(await size.isVisible(), 'mobile should expose a size slider');
+    await size.evaluate((input) => { input.value = '40'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.equal(await page.locator('#mobile-size-value').textContent(), '40');
+    const rect = await page.locator('canvas').boundingBox();
+    await page.mouse.move(rect.x + rect.width * .5, rect.y + rect.height * .4);
+    await page.mouse.down();
+    await page.mouse.move(rect.x + rect.width * .5, rect.y + rect.height * .6, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1') ?? 'null')?.strokes.length === 1);
+    const stroke = await page.evaluate(() => JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1')).strokes[0]);
+    assert.equal(stroke.kind, 'erase');
+    assert.equal(stroke.width, 40);
+    await page.getByRole('button', { name: 'Кисть' }).click();
+    assert.equal(await size.inputValue(), '3');
+    await size.evaluate((input) => { input.value = '8'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.getByRole('button', { name: 'Ластик' }).click();
+    assert.equal(await size.inputValue(), '40', 'eraser remembers its size independently');
+  } finally { await browser.close(); }
+});
