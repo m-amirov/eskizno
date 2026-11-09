@@ -44,6 +44,11 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 .status-bar { border-top: 1px solid #e0e4e4; display: flex; align-items: center; gap: 20px; padding: 0 24px; color: #687274; font-size: 11px; white-space: nowrap; }
 #tool-status { font-variant-numeric: tabular-nums; }
 .status-hint { flex: 1; overflow: hidden; text-overflow: ellipsis; color: #a0a7a8; }
+.zoom-controls { display: flex; align-items: center; flex: none; gap: 2px; height: 29px; background: #fff; border: 1px solid #dce0e0; border-radius: 4px; }
+.zoom-button, .zoom-value { background: transparent; border: 0; color: #46585c; height: 27px; display: grid; place-items: center; }
+.zoom-button { width: 27px; font-size: 16px; font-weight: 400; }
+.zoom-value { min-width: 44px; font-size: 10px; font-variant-numeric: tabular-nums; padding: 0 4px; }
+.zoom-button:hover:not(:disabled), .zoom-value:hover { background: #eff2f2; }
 .export-button { color: #3d5157; font-size: 11px; }
 .lesson-panel { min-width: 0; min-height: 0; overflow-y: auto; background: #fff; border-left: 1px solid #dce0e0; display: flex; flex-direction: column; padding: 25px 24px 19px; }
 .lesson-kicker { display: flex; justify-content: space-between; font-size: 11px; color: #7a8486; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
@@ -84,15 +89,24 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
 @media (max-width: 850px) {
   .application { min-height: 0; }
   .header { height: 53px; gap: 15px; }
-  .workspace { grid-template-columns: 58px minmax(0,1fr); grid-template-rows: minmax(0,1fr) 245px; }
+  .workspace { grid-template-columns: 58px minmax(0,1fr); grid-template-rows: minmax(0,1fr) 280px; }
   .toolbar { grid-column: 1; grid-row: 1; }
   .workbench { grid-column: 2; grid-row: 1; }
-  .lesson-panel { grid-column: 1 / 3; grid-row: 2; display: grid; grid-template-columns: minmax(0,1fr) 1fr; align-content: start; column-gap: 26px; border-left: 0; border-top: 1px solid #dce0e0; padding: 16px 23px; }
+  .lesson-panel { grid-column: 1 / 3; grid-row: 2; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto auto auto auto auto; align-content: start; column-gap: 26px; border-left: 0; border-top: 1px solid #dce0e0; padding: 16px 23px; }
   .lesson-kicker, .lesson-panel h1, .lesson-goal, .mode-heading, .mode-picker { grid-column: 1; }
+  .lesson-kicker { grid-row: 1; }
+  .lesson-panel h1 { grid-row: 2; }
+  .lesson-goal { grid-row: 3; }
+  .mode-heading { grid-row: 4; }
+  .mode-picker { grid-row: 5; }
   .lesson-panel h1 { margin: 10px 0 4px; font-size: 20px; }
   .lesson-goal { margin-bottom: 12px; }
   .mode-heading { margin-bottom: 4px; }
   .lesson-step-header, .instruction, .skill-note, .lesson-actions, .storage-note { grid-column: 2; }
+  .lesson-step-header { grid-row: 1; }
+  .instruction { grid-row: 2; }
+  .skill-note { grid-row: 3; }
+  .lesson-actions { grid-row: 4 / 6; align-self: end; }
   .lesson-step-header { padding-top: 0; margin: 0; border: 0; }
   .instruction { margin: 11px 0 6px; }
   .lesson-actions { margin-top: 11px; padding: 0; }
@@ -116,6 +130,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round
   .artboard-heading { padding: 0 15px; }
   .artboard-stage { padding: 6px 9px; }
   .status-bar { padding: 0 13px; }
+  #tool-status { display: none; }
   .lesson-panel { grid-column: 1; grid-row: 3; display: flex; gap: 0; padding: 12px 16px; }
   .lesson-kicker { font-size: 10px; }
   .lesson-panel h1 { margin: 6px 0 3px; font-size: 18px; }
