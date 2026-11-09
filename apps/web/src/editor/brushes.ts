@@ -3,6 +3,23 @@ import type { BrushId, Point, Stroke } from './model';
 type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type PixelPoint = { x: number; y: number };
 
+export interface ToolSettings {
+  brushSize: number;
+  eraserSize: number;
+  opacity: number;
+}
+
+/** The two tools retain distinct widths; opacity is stored as a unit interval. */
+export function normalizeToolSettings(settings: ToolSettings): ToolSettings {
+  const bounded = (value: number, minimum: number, maximum: number, fallback: number) =>
+    Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : fallback;
+  return {
+    brushSize: bounded(settings.brushSize, 1, 48, 8),
+    eraserSize: bounded(settings.eraserSize, 1, 48, 8),
+    opacity: bounded(settings.opacity, 0, 1, 1),
+  };
+}
+
 export const BRUSH_PRESETS: ReadonlyArray<{
   id: BrushId;
   label: string;

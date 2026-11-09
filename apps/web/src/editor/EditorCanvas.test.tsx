@@ -392,4 +392,168 @@ describe('связь выбранной кисти и штриха', () => {
       type: 'addStroke', stroke: expect.objectContaining({ brushId: 'charcoal', kind: 'ink' }),
     }));
   });
+
+  it('сохраняет независимую толщину кисти и ластика при переключении инструментов', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    const thickness = screen.getByRole('slider', { name: 'Толщина линии' }) as HTMLInputElement;
+    fireEvent.change(thickness, { target: { value: '18' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ластик' }));
+    const eraserThickness = screen.getByRole('slider', { name: 'Толщина ластика' }) as HTMLInputElement;
+    expect(eraserThickness.value).toBe('8');
+    fireEvent.change(eraserThickness, { target: { value: '31' } });
+    fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 120, clientY: 120 });
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ kind: 'erase', width: 31 }) }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Кисти, выбран Карандаш' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать Карандаш' }));
+    expect(thickness.value).toBe('18');
+    fireEvent.pointerDown(canvas, { pointerId: 2, clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 120, clientY: 120 });
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ kind: 'ink', width: 18 }) }));
+  });
+
+  it('включает промежуточные coalesced-точки в один штрих пера без повторения последней точки', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    const move = new Event('pointermove', { bubbles: true });
+    Object.assign(move, { pointerId: 7, pointerType: 'pen', clientX: 160, clientY: 120,
+      getCoalescedEvents: () => [
+        { pointerId: 7, clientX: 120, clientY: 100 },
+        { pointerId: 7, clientX: 140, clientY: 110 },
+        { pointerId: 7, clientX: 160, clientY: 120 },
+      ] });
+    fireEvent(canvas, move);
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 180, clientY: 130 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: [
+        { x: .25, y: .3 }, { x: .3, y: 1 / 3 }, { x: .35, y: 110 / 300 },
+        { x: .4, y: .4 }, { x: .45, y: 130 / 300 },
+      ] }) }));
+  });
+
+  it('даёт перу приоритет перед касаниями ладони, не прерывая штрих и не меняя масштаб', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: 'touch', clientX: 85, clientY: 90, button: 0 });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 100, button: 0 });
+    fireEvent.pointerDown(canvas, { pointerId: 2, pointerType: 'touch', clientX: 200, clientY: 90, button: 0 });
+    fireEvent.pointerMove(canvas, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 130, clientY: 110 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: 'touch', clientX: 85, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 150, clientY: 120 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: [{ x: .25, y: 1 / 3 }, { x: .325, y: 110 / 300 }, { x: .375, y: .4 }] }) }));
+    expect(screen.getByText('100%')).toBeTruthy();
+  });
+
+  it('не повторяет coalesced-точки при начале мазка поверх существующей фигуры', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'figure', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    const move = new Event('pointermove', { bubbles: true });
+    Object.assign(move, { pointerId: 7, pointerType: 'pen', clientX: 130, clientY: 105,
+      getCoalescedEvents: () => [
+        { pointerId: 7, clientX: 110, clientY: 95 },
+        { pointerId: 7, clientX: 120, clientY: 100 },
+        { pointerId: 7, clientX: 130, clientY: 105 },
+      ] });
+    fireEvent(canvas, move);
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 110 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: [
+        { x: .25, y: .3 }, { x: .275, y: 95 / 300 }, { x: .3, y: 1 / 3 },
+        { x: .325, y: .35 }, { x: .35, y: 110 / 300 },
+      ] }),
+    }));
+  });
+
+  it('освобождает блокировку касаний при потере захвата пера без pointerup', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    fireEvent.lostPointerCapture(canvas, { pointerId: 7, pointerType: 'pen' });
+    fireEvent.pointerDown(canvas, { pointerId: 8, pointerType: 'touch', clientX: 120, clientY: 120, button: 0 });
+    fireEvent.pointerUp(canvas, { pointerId: 8, pointerType: 'touch', clientX: 140, clientY: 140 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: [{ x: .3, y: .4 }, { x: .35, y: 140 / 300 }] }) }));
+  });
+
+  it('не сбрасывает активное перо при потере захвата чужого указателя', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    fireEvent.lostPointerCapture(canvas, { pointerId: 8, pointerType: 'touch' });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 130, clientY: 110 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('фиксирует кисть, размер и прозрачность при начале штриха', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    fireEvent.change(screen.getByRole('slider', { name: 'Толщина линии' }), { target: { value: '30' } });
+    fireEvent.change(screen.getByRole('slider', { name: 'Прозрачность кисти' }), { target: { value: '35' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Кисти, выбран Карандаш' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать Уголь' }));
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 130, clientY: 110 });
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ width: 8, opacity: 1, brushId: 'pencil' }) }));
+    fireEvent.pointerDown(canvas, { pointerId: 8, pointerType: 'pen', clientX: 140, clientY: 120, button: 0 });
+    fireEvent.pointerUp(canvas, { pointerId: 8, pointerType: 'pen', clientX: 160, clientY: 140 });
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ width: 30, opacity: .35, brushId: 'charcoal' }) }));
+  });
+
+  it('сохраняет начальную толщину при переходе удержания фигуры в обычный мазок', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'figure', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, button: 0 });
+    fireEvent.change(screen.getByRole('slider', { name: 'Толщина линии' }), { target: { value: '30' } });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 130, clientY: 110 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 120 });
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ width: 8 }) }));
+  });
 });
