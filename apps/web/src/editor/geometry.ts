@@ -74,6 +74,20 @@ export function panView(view: ViewState, deltaX: number, deltaY: number): ViewSt
   return boundedView(view.zoom, view.panX + deltaX, view.panY + deltaY);
 }
 
+/** Normalizes WheelEvent deltaMode without trusting unbounded or malformed input. */
+export function normalizedWheelDelta(deltaY: number, deltaMode: number, pageHeight: number): number | null {
+  if (!Number.isFinite(deltaY) || !Number.isFinite(pageHeight) || pageHeight <= 0) return null;
+  const factor = deltaMode === 0 ? 1 : deltaMode === 1 ? 16 : deltaMode === 2 ? pageHeight : null;
+  return factor === null ? null : deltaY * factor;
+}
+
+/** Zooms around the cursor, with comfortable exponential wheel sensitivity. */
+export function wheelZoom(view: ViewState, deltaY: number, anchor: Point): ViewState {
+  if (!Number.isFinite(deltaY)) return view;
+  const boundedDelta = clamp(deltaY, -2000, 2000);
+  return zoomView(view, view.zoom * Math.exp(-boundedDelta * 0.002), anchor);
+}
+
 export function pinchView(
   view: ViewState,
   previous: [Point, Point],

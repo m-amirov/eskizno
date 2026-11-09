@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  clientToNormalized, panView, pinchView, screenToArtboard, zoomView, type ViewState,
+  clientToNormalized, normalizedWheelDelta, panView, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState,
 } from './geometry';
 
 const base: ViewState = { zoom: 1, panX: 0, panY: 0 };
@@ -55,5 +55,23 @@ describe('геометрия холста', () => {
     );
     expect(result.zoom).toBeCloseTo(2);
     expect(result.panY).toBeCloseTo(0.1);
+  });
+
+  it('колёсико масштабирует относительно курсора и не выходит за диапазон 1…4', () => {
+    const anchor = { x: 0.64, y: 0.35 };
+    const zoomed = wheelZoom(base, -100, anchor);
+    expect(zoomed.zoom).toBeCloseTo(Math.exp(0.2));
+    expect(screenToArtboard(anchor, zoomed)?.x).toBeCloseTo(0.64, 5);
+    expect(screenToArtboard(anchor, zoomed)?.y).toBeCloseTo(0.35, 5);
+    expect(wheelZoom(base, Number.NaN, anchor)).toBe(base);
+    expect(wheelZoom(base, -5000, anchor).zoom).toBe(4);
+    expect(wheelZoom(base, 5000, anchor).zoom).toBe(1);
+  });
+
+  it('переводит колёсико со строк/страниц в пиксели', () => {
+    expect(normalizedWheelDelta(-3, 0, 800)).toBe(-3);
+    expect(normalizedWheelDelta(-3, 1, 800)).toBe(-48);
+    expect(normalizedWheelDelta(-1, 2, 800)).toBe(-800);
+    expect(normalizedWheelDelta(Number.POSITIVE_INFINITY, 0, 800)).toBeNull();
   });
 });

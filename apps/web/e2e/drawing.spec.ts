@@ -56,3 +56,30 @@ test('на узком экране холст остаётся видимым, �
   await toggle.click();
   await expect(page.getByRole('button', { name: 'Добавить слой' })).toBeVisible();
 });
+
+test('колёсико масштабирует холст и не меняет размер пиксельного буфера', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error('Холст не виден');
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.mouse.wheel(0, -140);
+  await expect(page.getByText('100%')).toBeHidden();
+  expect(await canvas.evaluate((node: HTMLCanvasElement) => [node.width, node.height])).toEqual([1024, 768]);
+});
+
+test('полноэкранная студия сохраняет инструменты и позволяет выйти', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await page.getByRole('button', { name: 'Полный экран' }).click();
+  await expect(page.getByRole('button', { name: 'Выйти из полного экрана' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Карандаш' })).toBeVisible();
+  const fullscreenSupported = await page.evaluate(() => Boolean(document.fullscreenElement));
+  if (fullscreenSupported) {
+    await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeHidden();
+  }
+  await page.getByRole('button', { name: 'Выйти из полного экрана' }).click();
+  await expect(page.getByRole('button', { name: 'Полный экран' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeVisible();
+});

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react';
 
-import { clientToNormalized, INITIAL_VIEW, screenToArtboard, zoomView, type ViewState } from './geometry';
+import { clientToNormalized, INITIAL_VIEW, normalizedWheelDelta, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState } from './geometry';
 import type { ProjectHistory } from './history';
 import { MAX_LAYERS, type DrawingProject, type PaintLayer, type Point, type ProjectAction, type Stroke } from './model';
 import { renderProject } from './render';
+import { PalettePopover } from './PalettePopover';
 
 type Tool = 'ink' | 'erase';
 type Gesture = { pointerId: number; layerId: string; points: Point[] };
@@ -33,14 +34,22 @@ function layerWithPreview(project: DrawingProject, preview: Stroke | null, layer
 
 export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvasProps) {
   const project = history.present;
+  const layoutRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
+  const touchPointers = useRef(new Map<number, Point>());
+  const pinchPrevious = useRef<[Point, Point] | null>(null);
   const [preview, setPreview] = useState<Stroke | null>(null);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [tool, setTool] = useState<Tool>('ink');
   const [layersExpanded, setLayersExpanded] = useState(false);
   const [color, setColor] = useState(project.palette[0]);
   const [size, setSize] = useState(8);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [canvasDisplayWidth, setCanvasDisplayWidth] = useState<number | null>(null);
+  const immersive = nativeFullscreen || focusMode;
   const active = project.layers.find((layer) => layer.id === project.activeLayerId);
   const canDraw = active?.kind === 'paint' && active.visible && !active.locked;
   const pointCount = project.layers.reduce((sum, layer) => sum + (layer.kind === 'paint' ? layer.strokes.length : 0), 0);
@@ -56,6 +65,76 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     });
   }, [project, preview, view]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handleWheel = (event: WheelEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const anchor = clientToNormalized(event.clientX, event.clientY, rect);
+      const delta = normalizedWheelDelta(event.deltaY, event.deltaMode, rect.height);
+      if (!anchor || delta === null) return;
+      event.preventDefault();
+      setView((current) => wheelZoom(current, delta, anchor));
+    };
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  useEffect(() => {
+    const syncFullscreen = () => setNativeFullscreen(document.fullscreenElement === layoutRef.current);
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFocusMode(false);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!focusMode) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [focusMode]);
+
+  useLayoutEffect(() => {
+    if (!immersive || !stageRef.current) return;
+    const stage = stageRef.current;
+    const resize = () => {
+      const style = getComputedStyle(stage);
+      const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (availableWidth > 0 && availableHeight > 0) {
+        setCanvasDisplayWidth(Math.min(availableWidth, availableHeight * project.width / project.height));
+      }
+    };
+    resize();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize);
+    observer?.observe(stage);
+    window.addEventListener('resize', resize);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', resize); };
+  }, [immersive, project.width, project.height]);
+
+  const toggleFullscreen = async () => {
+    if (nativeFullscreen) {
+      try { await document.exitFullscreen(); }
+      catch { setNativeFullscreen(false); }
+      return;
+    }
+    if (focusMode) { setFocusMode(false); return; }
+    const layout = layoutRef.current;
+    if (!layout?.requestFullscreen) { setFocusMode(true); return; }
+    try {
+      await layout.requestFullscreen();
+      setNativeFullscreen(document.fullscreenElement === layout);
+    } catch {
+      setFocusMode(true);
+    }
+  };
+
   const pointerPoint = (event: PointerEvent<HTMLCanvasElement>): Point | null => {
     const rect = event.currentTarget.getBoundingClientRect();
     const normalized = clientToNormalized(event.clientX, event.clientY, rect);
@@ -68,16 +147,44 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   });
 
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (event.button !== 0 || !canDraw || gesture.current) return;
+    if (event.button !== 0) return;
+    const pointerId = event.pointerId ?? 1;
+    if (event.pointerType === 'touch') {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const normalized = clientToNormalized(event.clientX, event.clientY, rect);
+      if (!normalized) return;
+      touchPointers.current.set(pointerId, normalized);
+      event.currentTarget.setPointerCapture?.(pointerId);
+      if (touchPointers.current.size >= 2) {
+        cancelStroke();
+        pinchPrevious.current = [...touchPointers.current.values()].slice(0, 2) as [Point, Point];
+        return;
+      }
+    }
+    if (!canDraw || gesture.current) return;
     const point = pointerPoint(event);
     if (!point) return;
-    const pointerId = event.pointerId ?? 1;
     gesture.current = { pointerId, layerId: project.activeLayerId, points: [point] };
     setPreview(previewStroke([point]));
     event.currentTarget.setPointerCapture?.(pointerId);
   };
 
   const moveStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' && touchPointers.current.has(event.pointerId ?? 1)) {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const normalized = clientToNormalized(event.clientX, event.clientY, rect);
+      if (!normalized) return;
+      touchPointers.current.set(event.pointerId ?? 1, normalized);
+      if (touchPointers.current.size >= 2) {
+        const next = [...touchPointers.current.values()].slice(0, 2) as [Point, Point];
+        if (pinchPrevious.current) {
+          const previous = pinchPrevious.current;
+          setView((current) => pinchView(current, previous, next));
+        }
+        pinchPrevious.current = next;
+        return;
+      }
+    }
     if (!gesture.current || gesture.current.pointerId !== (event.pointerId ?? 1)) return;
     const point = pointerPoint(event);
     if (!point) return;
@@ -89,6 +196,13 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   };
 
   const finishStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch') {
+      touchPointers.current.delete(event.pointerId ?? 1);
+      if (pinchPrevious.current) {
+        pinchPrevious.current = null;
+        return;
+      }
+    }
     const current = gesture.current;
     if (!current || current.pointerId !== (event.pointerId ?? 1)) return;
     const end = pointerPoint(event);
@@ -105,6 +219,13 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   };
 
   const cancelStroke = () => { gesture.current = null; setPreview(null); };
+  const cancelPointer = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch') {
+      touchPointers.current.delete(event.pointerId ?? 1);
+      pinchPrevious.current = null;
+    }
+    if (gesture.current?.pointerId === (event.pointerId ?? 1)) cancelStroke();
+  };
 
   const addLayer = () => {
     if (project.layers.length >= MAX_LAYERS) return;
@@ -117,18 +238,23 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   };
 
   return (
-    <div className="studio-layout">
+    <div ref={layoutRef} className={focusMode ? 'studio-layout focus-mode' : 'studio-layout'}>
       <div className="studio-main">
         <div className="studio-toolbar" aria-label="Инструменты рисования">
           <button type="button" className={tool === 'ink' ? 'tool-active' : ''} onClick={() => setTool('ink')}>Карандаш</button>
           <button type="button" className={tool === 'erase' ? 'tool-active' : ''} onClick={() => setTool('erase')}>Ластик</button>
-          <label className="studio-control">Цвет <input type="color" aria-label="Цвет линии" value={color} onChange={(event) => setColor(event.target.value)} disabled={tool === 'erase'} /></label>
+          <PalettePopover color={color} colors={project.palette} onSelect={setColor} onSaveColor={(next) => {
+            if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
+              onAction({ type: 'setPalette', palette: [...project.palette, next] });
+            }
+          }} />
           <label className="studio-control">Толщина <input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /> <span>{size} px</span></label>
           <span className="toolbar-divider" aria-hidden="true" />
           <button type="button" onClick={onUndo} disabled={!history.past.length}>Отменить</button>
           <button type="button" onClick={onRedo} disabled={!history.future.length}>Повторить</button>
+          <button type="button" className="fullscreen-toggle" aria-pressed={immersive} onClick={toggleFullscreen}>{immersive ? 'Выйти из полного экрана' : 'Полный экран'}</button>
         </div>
-        <div className="artboard-stage">
+        <div className="artboard-stage" ref={stageRef}>
           <canvas
             ref={canvasRef}
             className="drawing-canvas"
@@ -136,12 +262,14 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
             height={project.height}
             role="img"
             aria-label="Холст для рисования"
+            style={immersive && canvasDisplayWidth ? { width: `${canvasDisplayWidth}px` } : undefined}
             onPointerDown={startStroke}
             onPointerMove={moveStroke}
             onPointerUp={finishStroke}
-            onPointerCancel={cancelStroke}
+            onPointerCancel={cancelPointer}
           />
         </div>
+        {focusMode && <p className="fullscreen-fallback-note" role="status">Полный экран недоступен. Включён режим без элементов сайта.</p>}
         <div className="canvas-footer">
           <span>Штрихов: {pointCount}</span>
           <div className="zoom-controls">
