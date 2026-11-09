@@ -14,6 +14,23 @@ const stroke: Stroke = {
 };
 
 describe('история редактора', () => {
+  it('отменяет перемещение фигуры и заливку отдельными шагами', () => {
+    const initial = createProjectHistory(createProject());
+    const id = initial.present.activeLayerId;
+    const filled = commitAction(initial, { type: 'addFill', layerId: id,
+      fill: { id: 'f', point: { x: .5, y: .5 }, color: '#F00F00' } });
+    const added = commitAction(filled, { type: 'addShape', layerId: id,
+      shape: { id: 's', kind: 'rectangle', from: { x: .1, y: .2 }, to: { x: .4, y: .5 },
+        color: '#123456', width: 2, style: 'both', opacity: 1 } });
+    const moved = commitAction(added, { type: 'updateShape', layerId: id, shapeId: 's',
+      from: { x: .2, y: .3 }, to: { x: .5, y: .6 } });
+    expect(moved.past).toHaveLength(3);
+    const undone = undoAction(moved);
+    expect(undone.present.layers[0]).toMatchObject({ operations: [{ type: 'fill' },
+      { type: 'shape', shape: { from: { x: .1, y: .2 } } }] });
+    expect(redoAction(undone).present.layers[0]).toEqual(moved.present.layers[0]);
+    expect(undoAction(undone).present.layers[0]).toMatchObject({ operations: [{ type: 'fill' }] });
+  });
   it('возвращает нанесённый штрих через undo и redo', () => {
     const initial = createProjectHistory(createProject({}));
     const painted = commitAction(initial, {
@@ -25,6 +42,15 @@ describe('история редактора', () => {
     expect(undone.present.layers[0]).toMatchObject({ strokes: [] });
     expect(redoAction(undone).present.layers[0]).toMatchObject({ strokes: [stroke] });
     expect(initial.present.layers[0]).toMatchObject({ strokes: [] });
+  });
+
+  it('восстанавливает рисунок после очистки всех штрихов', () => {
+    const initial = createProjectHistory(createProject());
+    const painted = commitAction(initial, { type: 'addStroke', layerId: initial.present.activeLayerId, stroke });
+    const cleared = commitAction(painted, { type: 'clearDrawing' });
+    expect(cleared.present.layers[0]).toMatchObject({ strokes: [] });
+    expect(undoAction(cleared).present.layers[0]).toMatchObject({ strokes: [stroke] });
+    expect(redoAction(undoAction(cleared)).present.layers[0]).toMatchObject({ strokes: [] });
   });
 
   it('восстанавливает слои и настройки, а не только штрихи', () => {

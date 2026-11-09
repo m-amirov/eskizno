@@ -1,4 +1,4 @@
-import type { DrawingProject, Layer, ProjectAction } from './model';
+import { getPaintOperations, type DrawingProject, type Layer, type ProjectAction, type ShapeKind } from './model';
 
 /** A small semantic signal; no pointermove stream or image data is recorded. */
 export type DrawingEvent =
@@ -11,6 +11,9 @@ export type DrawingEvent =
     brushId: string;
     pointCount: number;
   }
+  | { type: 'fillCommitted'; projectId: string; layerId: string; fillId: string }
+  | { type: 'shapeCommitted'; projectId: string; layerId: string; shapeId: string; kind: ShapeKind }
+  | { type: 'shapeChanged'; projectId: string; layerId: string; shapeId: string }
   | {
     type: 'layerAdded';
     projectId: string;
@@ -55,6 +58,33 @@ export function createActionEvent(
   const projectId = before.id;
 
   switch (action.type) {
+    case 'addFill':
+    case 'addShape': {
+      const oldLayer = layerIn(before, action.layerId);
+      const newLayer = layerIn(after, action.layerId);
+      if (oldLayer?.kind !== 'paint' || newLayer?.kind !== 'paint'
+        || getPaintOperations(newLayer).length !== getPaintOperations(oldLayer).length + 1) return null;
+      const added = getPaintOperations(newLayer).at(-1);
+      if (action.type === 'addFill' && added?.type === 'fill' && added.fill.id === action.fill.id) {
+        return { type: 'fillCommitted', projectId, layerId: action.layerId, fillId: added.fill.id };
+      }
+      if (action.type === 'addShape' && added?.type === 'shape' && added.shape.id === action.shape.id) {
+        return { type: 'shapeCommitted', projectId, layerId: action.layerId,
+          shapeId: added.shape.id, kind: added.shape.kind };
+      }
+      return null;
+    }
+    case 'updateShape': {
+      const oldLayer = layerIn(before, action.layerId);
+      const newLayer = layerIn(after, action.layerId);
+      if (oldLayer?.kind !== 'paint' || newLayer?.kind !== 'paint') return null;
+      const oldShape = getPaintOperations(oldLayer).find((op) => op.type === 'shape' && op.shape.id === action.shapeId);
+      const newShape = getPaintOperations(newLayer).find((op) => op.type === 'shape' && op.shape.id === action.shapeId);
+      if (oldShape?.type !== 'shape' || newShape?.type !== 'shape'
+        || (oldShape.shape.from.x === newShape.shape.from.x && oldShape.shape.from.y === newShape.shape.from.y
+        && oldShape.shape.to.x === newShape.shape.to.x && oldShape.shape.to.y === newShape.shape.to.y)) return null;
+      return { type: 'shapeChanged', projectId, layerId: action.layerId, shapeId: action.shapeId };
+    }
     case 'addStroke': {
       const oldLayer = layerIn(before, action.layerId);
       const newLayer = layerIn(after, action.layerId);

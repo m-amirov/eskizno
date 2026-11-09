@@ -4,7 +4,8 @@ export const DOCUMENT_SCHEMA_VERSION = 2 as const;
 export const MAX_LAYERS = 16;
 export const MAX_PALETTE_COLORS = 32;
 
-export type BrushId = 'pencil' | 'liner' | 'marker' | 'soft';
+export type BrushId = 'pencil' | 'liner' | 'marker' | 'soft'
+  | 'watercolor' | 'charcoal' | 'dry' | 'airbrush' | 'calligraphy' | 'pastel';
 export type Point = { x: number; y: number };
 export type ReferenceTransform = { x: number; y: number; scale: number; rotation: number };
 
@@ -19,6 +20,31 @@ export interface Stroke {
   step?: number;
 }
 
+export type ShapeKind = 'rectangle' | 'ellipse' | 'triangle' | 'line' | 'arrow';
+export type ShapeStyle = 'outline' | 'fill' | 'both';
+export interface Shape {
+  id: string;
+  kind: ShapeKind;
+  from: Point;
+  to: Point;
+  color: string;
+  width: number;
+  style: ShapeStyle;
+  opacity: number;
+}
+
+/** Flood fill is replayed at its position in the paint command stream. */
+export interface BucketFill {
+  id: string;
+  point: Point;
+  color: string;
+}
+
+export type PaintOperation =
+  | { type: 'stroke'; strokeId: string }
+  | { type: 'shape'; shape: Shape }
+  | { type: 'fill'; fill: BucketFill };
+
 interface LayerBase {
   id: string;
   name: string;
@@ -30,6 +56,8 @@ interface LayerBase {
 export interface PaintLayer extends LayerBase {
   kind: 'paint';
   strokes: Stroke[];
+  /** Absent in legacy v2 documents; those render strokes in array order. */
+  operations?: PaintOperation[];
 }
 
 export interface ReferenceLayer extends LayerBase {
@@ -64,6 +92,10 @@ export interface DrawingProject {
 
 export type ProjectAction =
   | { type: 'addStroke'; layerId: string; stroke: Stroke }
+  | { type: 'addShape'; layerId: string; shape: Shape }
+  | { type: 'updateShape'; layerId: string; shapeId: string; from: Point; to: Point }
+  | { type: 'addFill'; layerId: string; fill: BucketFill }
+  | { type: 'clearDrawing' }
   | { type: 'addLayer'; layer: Layer; index?: number }
   | { type: 'removeLayer'; layerId: string }
   | { type: 'reorderLayer'; layerId: string; toIndex: number }
@@ -83,12 +115,17 @@ export interface CreateProjectOptions {
 }
 
 const DEFAULT_PALETTE = ['#254332', '#F0C886', '#B67C66', '#6D8CA0', '#FFFFFF'];
-const BRUSH_IDS: BrushId[] = ['pencil', 'liner', 'marker', 'soft'];
+const BRUSH_IDS: BrushId[] = [
+  'pencil', 'liner', 'marker', 'soft', 'watercolor', 'charcoal', 'dry',
+  'airbrush', 'calligraphy', 'pastel',
+];
 
 const isFiniteNumber = (value: number): boolean => Number.isFinite(value);
 const isUnit = (value: number): boolean => isFiniteNumber(value) && value >= 0 && value <= 1;
 const isHexColor = (value: string): boolean => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
 const isId = (id: string): boolean => typeof id === 'string' && id.trim().length > 0;
+const isPoint = (point: Point): boolean => point !== null && typeof point === 'object'
+  && isUnit(point.x) && isUnit(point.y);
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -118,6 +155,44 @@ function isValidStroke(value: Stroke): boolean {
     && (value.step === undefined || Number.isInteger(value.step) && value.step >= 0);
 }
 
+function isValidShape(shape: Shape): boolean {
+  return shape !== null && typeof shape === 'object'
+    && isId(shape.id) && ['rectangle', 'ellipse', 'triangle', 'line', 'arrow'].includes(shape.kind)
+    && isPoint(shape.from) && isPoint(shape.to)
+    && isHexColor(shape.color) && isFiniteNumber(shape.width)
+    && shape.width > 0 && shape.width <= 256
+    && ['outline', 'fill', 'both'].includes(shape.style) && isUnit(shape.opacity);
+}
+
+function isValidFill(fill: BucketFill): boolean {
+  return fill !== null && typeof fill === 'object'
+    && isId(fill.id) && isPoint(fill.point) && isHexColor(fill.color);
+}
+
+export function getPaintOperations(layer: PaintLayer): PaintOperation[] {
+  return layer.operations ?? layer.strokes.map(({ id }) => ({ type: 'stroke', strokeId: id }));
+}
+
+export function getShapes(layer: PaintLayer): Shape[] {
+  return getPaintOperations(layer).flatMap((op) => op.type === 'shape' ? [op.shape] : []);
+}
+
+function copyOperation(operation: PaintOperation): PaintOperation {
+  if (operation.type === 'stroke') return { type: 'stroke', strokeId: operation.strokeId };
+  if (operation.type === 'fill') return { type: 'fill', fill: { ...operation.fill, point: { ...operation.fill.point } } };
+  return { type: 'shape', shape: { ...operation.shape, from: { ...operation.shape.from }, to: { ...operation.shape.to } } };
+}
+
+function operationId(operation: PaintOperation): string {
+  return operation.type === 'stroke' ? operation.strokeId
+    : operation.type === 'fill' ? operation.fill.id : operation.shape.id;
+}
+
+function usedPaintIds(project: DrawingProject): Set<string> {
+  return new Set(project.layers.flatMap((layer) => layer.kind === 'paint'
+    ? [...layer.strokes.map(({ id }) => id), ...getPaintOperations(layer).map(operationId)] : []));
+}
+
 function copyLayer(layer: Layer): Layer | null {
   if (!layer || !isId(layer.id) || typeof layer.name !== 'string' || !layer.name.trim()
     || typeof layer.visible !== 'boolean' || typeof layer.locked !== 'boolean'
@@ -137,7 +212,23 @@ function copyLayer(layer: Layer): Layer | null {
     if (!Array.isArray(layer.strokes) || !layer.strokes.every(isValidStroke)) return null;
     const ids = layer.strokes.map((stroke) => stroke.id);
     if (new Set(ids).size !== ids.length) return null;
-    return { ...common, kind: 'paint', strokes: layer.strokes.map(copyStroke) };
+    if (layer.operations !== undefined) {
+      if (!Array.isArray(layer.operations)) return null;
+      const seenIds = new Set<string>();
+      for (const op of layer.operations) {
+        if (!op || (op.type === 'stroke' && (!isId(op.strokeId) || !ids.includes(op.strokeId)))
+          || (op.type === 'shape' && !isValidShape(op.shape))
+          || (op.type === 'fill' && !isValidFill(op.fill))
+          || !['stroke', 'shape', 'fill'].includes(op.type)) return null;
+        const id = operationId(op);
+        if (seenIds.has(id)) return null;
+        seenIds.add(id);
+      }
+      if (ids.length !== layer.operations.filter((op) => op.type === 'stroke').length
+        || ids.some((id) => !seenIds.has(id))) return null;
+    }
+    return { ...common, kind: 'paint', strokes: layer.strokes.map(copyStroke),
+      ...(layer.operations ? { operations: layer.operations.map(copyOperation) } : {}) };
   }
 
   if (layer.kind === 'reference') {
@@ -224,13 +315,51 @@ export function createProject(options: CreateProjectOptions = {}): DrawingProjec
 
 export function applyAction(project: DrawingProject, action: ProjectAction): DrawingProject {
   switch (action.type) {
+    case 'clearDrawing': {
+      if (!project.layers.some((layer) => layer.kind === 'paint'
+        && (layer.strokes.length > 0 || (layer.operations?.length ?? 0) > 0))) return project;
+      return nextProject(project, {
+        layers: project.layers.map((layer) => layer.kind === 'paint'
+          && (layer.strokes.length > 0 || (layer.operations?.length ?? 0) > 0)
+          ? { ...layer, strokes: [], ...(layer.operations ? { operations: [] } : {}) } : layer),
+      });
+    }
     case 'addStroke': {
       if (!isValidStroke(action.stroke)) return project;
-      if (project.layers.some((layer) => layer.kind === 'paint'
-        && layer.strokes.some((item) => item.id === action.stroke.id))) return project;
+      if (usedPaintIds(project).has(action.stroke.id)) return project;
       return updateLayer(project, action.layerId, (layer) => {
         if (layer.kind !== 'paint' || layer.locked || !layer.visible) return null;
-        return { ...layer, strokes: [...layer.strokes, copyStroke(action.stroke)] };
+        return { ...layer, strokes: [...layer.strokes, copyStroke(action.stroke)],
+          ...(layer.operations ? { operations: [...layer.operations, { type: 'stroke' as const, strokeId: action.stroke.id }] } : {}) };
+      });
+    }
+    case 'addShape': {
+      if (!isValidShape(action.shape) || usedPaintIds(project).has(action.shape.id)) return project;
+      return updateLayer(project, action.layerId, (layer) => {
+        if (layer.kind !== 'paint' || layer.locked || !layer.visible) return null;
+        return { ...layer, operations: [...getPaintOperations(layer),
+          { type: 'shape', shape: { ...action.shape, from: { ...action.shape.from }, to: { ...action.shape.to } } }] };
+      });
+    }
+    case 'updateShape': {
+      if (!isId(action.shapeId) || !isPoint(action.from) || !isPoint(action.to)) return project;
+      return updateLayer(project, action.layerId, (layer) => {
+        if (layer.kind !== 'paint' || layer.locked || !layer.visible || !layer.operations) return null;
+        const target = layer.operations.find((op) => op.type === 'shape' && op.shape.id === action.shapeId);
+        if (!target || target.type !== 'shape') return null;
+        if (target.shape.from.x === action.from.x && target.shape.from.y === action.from.y
+          && target.shape.to.x === action.to.x && target.shape.to.y === action.to.y) return layer;
+        return { ...layer, operations: layer.operations.map((op) =>
+          op === target ? { type: 'shape' as const,
+            shape: { ...target.shape, from: { ...action.from }, to: { ...action.to } } } : op) };
+      });
+    }
+    case 'addFill': {
+      if (!isValidFill(action.fill) || usedPaintIds(project).has(action.fill.id)) return project;
+      return updateLayer(project, action.layerId, (layer) => {
+        if (layer.kind !== 'paint' || layer.locked || !layer.visible) return null;
+        return { ...layer, operations: [...getPaintOperations(layer),
+          { type: 'fill', fill: { ...action.fill, point: { ...action.fill.point } } }] };
       });
     }
     case 'addLayer': {
@@ -238,9 +367,8 @@ export function applyAction(project: DrawingProject, action: ProjectAction): Dra
         || project.layers.some((layer) => layer.id === action.layer?.id)) return project;
       const layer = copyLayer(action.layer);
       if (!layer) return project;
-      const allStrokeIds = new Set(project.layers.flatMap((item) => item.kind === 'paint'
-        ? item.strokes.map((stroke) => stroke.id) : []));
-      if (layer.kind === 'paint' && layer.strokes.some((stroke) => allStrokeIds.has(stroke.id))) {
+      const allStrokeIds = usedPaintIds(project);
+      if (layer.kind === 'paint' && getPaintOperations(layer).some((op) => allStrokeIds.has(operationId(op)))) {
         return project;
       }
       const index = action.index === undefined ? project.layers.length
