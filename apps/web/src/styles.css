@@ -106,11 +106,18 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .app-shell-studio .layers-panel { overflow-y: auto; }
 .studio-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 13px 15px; border-bottom: 1px solid #e7ede6; }
 .app-shell-studio .studio-toolbar { flex-shrink: 0; }
-.studio-toolbar > button, .canvas-footer button, .layer-row button { border: 1px solid transparent; border-radius: 7px; background: transparent; color: #34493d; padding: 8px 11px; font-size: 13px; }
-.studio-toolbar > button[aria-label] { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; flex: 0 0 auto; }
+.toolbar-drawing-tools, .toolbar-shape-options, .toolbar-brush-settings, .toolbar-actions { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.toolbar-drawing-tools { order: 1; flex: 0 0 auto; }
+.toolbar-shape-options { order: 2; flex-wrap: wrap; }
+.toolbar-brush-settings { order: 3; flex-wrap: wrap; }
+.toolbar-actions { order: 4; gap: 4px; margin-left: auto; flex: 0 0 auto; }
+.toolbar-has-shapes .toolbar-actions { order: 3; }
+.toolbar-has-shapes .toolbar-brush-settings { order: 4; flex-basis: 100%; }
+.studio-toolbar :is(.toolbar-drawing-tools, .toolbar-actions) > button, .canvas-footer button, .layer-row button { border: 1px solid transparent; border-radius: 7px; background: transparent; color: #34493d; padding: 8px 11px; font-size: 13px; }
+.studio-toolbar :is(.toolbar-drawing-tools, .toolbar-actions) > button[aria-label] { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; flex: 0 0 auto; }
 .studio-toolbar button:focus-visible, .brush-picker-trigger:focus-visible, .palette-trigger:focus-visible { outline: 2px solid #315c46; outline-offset: 2px; }
-.studio-toolbar > button:hover:not(:disabled), .canvas-footer button:hover:not(:disabled), .layer-row button:hover:not(:disabled) { background: #eef2ec; }
-.studio-toolbar > button.tool-active { background: #e1eee4; border-color: #b5cebd; font-weight: 650; }
+.studio-toolbar :is(.toolbar-drawing-tools, .toolbar-actions) > button:hover:not(:disabled), .canvas-footer button:hover:not(:disabled), .layer-row button:hover:not(:disabled) { background: #eef2ec; }
+.studio-toolbar .toolbar-drawing-tools > button.tool-active { background: #e1eee4; border-color: #b5cebd; font-weight: 650; }
 .brush-picker-root { display: inline-flex; align-items: center; }
 .brush-picker-trigger { display: inline-flex; align-items: center; justify-content: center; position: relative; width: 40px; height: 40px; border: 1px solid transparent; border-radius: 8px; padding: 0; background: #fff; color: #34493d; cursor: pointer; }
 .brush-picker-chevron { position: absolute; bottom: 0; right: 0; display: flex; color: #688777; }
@@ -142,8 +149,9 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .brush-sample--airbrush::before { height: 18px; background: #315c4680; filter: blur(7px); }
 .brush-sample--calligraphy::before { height: 11px; transform: rotate(-23deg) scaleY(.72); clip-path: polygon(0 30%, 100% 0, 100% 75%, 0 100%); }
 .brush-sample--pastel::before { height: 13px; opacity: .68; background: repeating-radial-gradient(circle at 20% 30%, #315c46 0 1px, transparent 2px 3px, #315c46bb 4px 6px); }
-.studio-toolbar > button:disabled, .canvas-footer button:disabled { opacity: .36; cursor: default; }
+.studio-toolbar .toolbar-actions > button:disabled, .canvas-footer button:disabled { opacity: .36; cursor: default; }
 .studio-control { display: inline-flex; align-items: center; gap: 7px; padding: 3px 6px; font-size: 12px; color: #627467; white-space: nowrap; }
+.toolbar-control-value { white-space: nowrap; }
 .studio-control input[type='color'] { width: 34px; height: 30px; border: 0; padding: 1px; background: transparent; cursor: pointer; }
 .palette-root { display: inline-flex; align-items: center; }
 .palette-trigger { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; position: relative; border: 1px solid #dce4d9; border-radius: 8px; background: #fff; color: #34493d; padding: 0; }
@@ -227,8 +235,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .layer-actions-menu button:disabled { opacity: .4; cursor: not-allowed; }
 .add-layer { width: 100%; margin-top: 17px; padding: 10px; }
 .draft-warning { background: #fbf3e3; color: #826036; font-size: 12px; line-height: 1.5; padding: 11px; border-radius: 8px; margin: 22px 0 0; }
-.studio-toolbar > .fullscreen-toggle { margin-left: auto; color: #315c46; border-color: #b8cdbb; background: #edf5ed; font-weight: 650; }
-.studio-toolbar > .clear-trigger { color: #9a4841; border-color: #efddda; }
+.studio-toolbar .toolbar-actions > .fullscreen-toggle { color: #315c46; border-color: #b8cdbb; background: #edf5ed; font-weight: 650; }
+.studio-toolbar .toolbar-actions > .clear-trigger { color: #9a4841; border-color: #efddda; }
 .clear-dialog-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(24, 35, 27, .36); z-index: 1001; }
 .clear-dialog { width: min(390px, 100%); padding: 25px; background: #fff; border: 1px solid #e5e8df; border-radius: 15px; box-shadow: 0 24px 70px #1a2c2040; }
 .clear-dialog h3 { margin: 0 0 10px; color: #334a3a; font-size: 20px; }
@@ -259,6 +267,12 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .intro-copy h2 { max-width: 640px; }
   .intro-preview-paper { min-height: 330px; }
   .studio-layout { grid-template-columns: 1fr; }
+  .toolbar-actions { order: 3; }
+  .toolbar-brush-settings { order: 4; flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .toolbar-brush-settings .studio-control { display: grid; grid-template-areas: 'name value' 'range range'; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; min-width: 0; }
+  .toolbar-control-name { grid-area: name; }
+  .toolbar-control-value { grid-area: value; }
+  .toolbar-brush-settings .studio-control input[type='range'] { grid-area: range; width: 100%; min-width: 0; margin: 0; }
   .app-shell-studio .studio-layout { grid-template-rows: minmax(0, 1fr) auto; }
   .app-shell-studio .layers-panel { max-height: 32dvh; }
   .layers-panel { padding: 18px; }
@@ -283,6 +297,13 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .empty-projects { flex-direction: column; align-items: flex-start; }
   .empty-workspace { min-height: 55vh; }
   .studio-toolbar { padding: 10px; }
+  .toolbar-drawing-tools { gap: 5px; }
+  .toolbar-shape-options { flex: 1 0 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .toolbar-shape-options .studio-control { display: flex; flex-direction: column; align-items: stretch; min-width: 0; gap: 4px; padding: 2px 4px; }
+  .toolbar-shape-options .studio-control select { width: 100%; min-width: 0; max-width: none; }
+  .toolbar-brush-settings { gap: 6px; }
+  .toolbar-brush-settings .studio-control { font-size: 11px; padding: 2px 4px; }
+  .toolbar-value-detail { display: none; }
   .studio-control { padding: 2px; }
   .artboard-stage { min-height: 220px; padding: 12px; }
   .app-shell-studio .artboard-stage { min-height: 0; }

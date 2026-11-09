@@ -416,12 +416,19 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   return (
     <div ref={layoutRef} className={focusMode ? 'studio-layout focus-mode' : 'studio-layout'}>
       <div className="studio-main">
-        <div className="studio-toolbar" aria-label="Инструменты рисования">
-          <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />
-          <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title="Ластик" aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
-          <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title="Заливка ведром" aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
-          <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title="Фигуры" aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
-          {tool === 'shape' && <>
+        <div className={tool === 'shape' ? 'studio-toolbar toolbar-has-shapes' : 'studio-toolbar'} aria-label="Инструменты рисования">
+          <div className="toolbar-drawing-tools">
+            <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />
+            <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title="Ластик" aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
+            <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title="Заливка ведром" aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
+            <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title="Фигуры" aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
+            <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
+              if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
+                onAction({ type: 'setPalette', palette: [...project.palette, next] });
+              }
+            }} />
+          </div>
+          {tool === 'shape' && <div className="toolbar-shape-options">
             <label className="studio-control">Фигура
               <select aria-label="Тип фигуры" value={shapeKind} onChange={(event) => setShapeKind(event.target.value as ShapeKind)}>
                 <option value="rectangle">Прямоугольник</option>
@@ -438,19 +445,17 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
                 <option value="both">Контур и заливка</option>
               </select>
             </label>
-          </>}
-          <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
-            if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
-              onAction({ type: 'setPalette', palette: [...project.palette, next] });
-            }
-          }} />
-          <label className="studio-control">Толщина <input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /> <span>{size} px</span></label>
-          <label className="studio-control">Прозрачность <input type="range" aria-label="Прозрачность кисти" min="0" max="100" value={brushOpacity} onChange={(event) => setBrushOpacity(Number(event.target.value))} /> <span>{brushOpacity}% кисти</span></label>
-          <span className="toolbar-divider" aria-hidden="true" />
-          <button type="button" aria-label="Отменить" title="Отменить" onClick={onUndo} disabled={!history.past.length}><ToolIcon name="undo" /></button>
-          <button type="button" aria-label="Повторить" title="Повторить" onClick={onRedo} disabled={!history.future.length}><ToolIcon name="redo" /></button>
-          <button type="button" className="clear-trigger" aria-label="Очистить" title="Очистить" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={contentCount === 0}><ToolIcon name="trash" /></button>
-          <button type="button" className="fullscreen-toggle" aria-label={immersive ? 'Выйти из полного экрана' : 'Полный экран'} title={immersive ? 'Выйти из полного экрана' : 'Полный экран'} aria-pressed={immersive} onClick={toggleFullscreen}><ToolIcon name={immersive ? 'minimize' : 'maximize'} /></button>
+          </div>}
+          <div className="toolbar-brush-settings">
+            <label className="studio-control"><span className="toolbar-control-name">Толщина</span><input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="toolbar-control-value">{size} px</span></label>
+            <label className="studio-control"><span className="toolbar-control-name">Прозрачность</span><input type="range" aria-label="Прозрачность кисти" min="0" max="100" value={brushOpacity} onChange={(event) => setBrushOpacity(Number(event.target.value))} /><span className="toolbar-control-value">{brushOpacity}<span>%</span><span className="toolbar-value-detail"> кисти</span></span></label>
+          </div>
+          <div className="toolbar-actions">
+            <button type="button" aria-label="Отменить" title="Отменить" onClick={onUndo} disabled={!history.past.length}><ToolIcon name="undo" /></button>
+            <button type="button" aria-label="Повторить" title="Повторить" onClick={onRedo} disabled={!history.future.length}><ToolIcon name="redo" /></button>
+            <button type="button" className="clear-trigger" aria-label="Очистить" title="Очистить" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={contentCount === 0}><ToolIcon name="trash" /></button>
+            <button type="button" className="fullscreen-toggle" aria-label={immersive ? 'Выйти из полного экрана' : 'Полный экран'} title={immersive ? 'Выйти из полного экрана' : 'Полный экран'} aria-pressed={immersive} onClick={toggleFullscreen}><ToolIcon name={immersive ? 'minimize' : 'maximize'} /></button>
+          </div>
         </div>
         <div className="artboard-stage" ref={stageRef}>
           <canvas

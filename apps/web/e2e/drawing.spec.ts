@@ -57,6 +57,40 @@ test('на узком экране холст остаётся видимым, �
   await expect(page.getByRole('button', { name: 'Добавить слой' })).toBeVisible();
 });
 
+test('панель инструментов держит целые группы на телефоне, планшете и десктопе', async ({ page }) => {
+  for (const viewport of [
+    { width: 320, height: 760 },
+    { width: 390, height: 844 },
+    { width: 820, height: 1180 },
+    { width: 1305, height: 764 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Свободная студия' }).click();
+    const toolbar = page.getByLabel('Инструменты рисования');
+
+    for (const group of ['toolbar-drawing-tools', 'toolbar-actions']) {
+      const boxes = await toolbar.locator(`.${group}`).getByRole('button').evaluateAll((buttons) =>
+        buttons.map((button) => button.getBoundingClientRect().top));
+      expect(Math.max(...boxes) - Math.min(...boxes), `${group} ${viewport.width}`).toBeLessThanOrEqual(2);
+    }
+    for (const name of ['Толщина линии', 'Прозрачность кисти']) {
+      await expect(toolbar.getByRole('slider', { name })).toBeVisible();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), JSON.stringify(viewport)).toBeLessThanOrEqual(viewport.width + 1);
+
+    await toolbar.getByRole('button', { name: 'Фигуры' }).click();
+    await expect(toolbar.getByRole('combobox', { name: 'Тип фигуры' })).toBeVisible();
+    await expect(toolbar.getByRole('combobox', { name: 'Стиль фигуры' })).toBeVisible();
+    await toolbar.getByRole('combobox', { name: 'Тип фигуры' }).selectOption('triangle');
+    await toolbar.getByRole('slider', { name: 'Прозрачность кисти' }).press('ArrowLeft');
+    await expect(toolbar.getByRole('slider', { name: 'Прозрачность кисти' })).toHaveValue('99');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), `фигуры ${viewport.width}`).toBeLessThanOrEqual(viewport.width + 1);
+    await expect(toolbar.getByRole('button', { name: 'Отменить' })).toBeVisible();
+    await expect(toolbar.getByRole('button', { name: 'Полный экран' })).toBeVisible();
+  }
+});
+
 test('обычная студия вмещает холст и строку состояния без прокрутки страницы', async ({ page }) => {
   for (const viewport of [
     { width: 1440, height: 900 },

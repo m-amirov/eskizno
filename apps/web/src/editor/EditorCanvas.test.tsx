@@ -12,6 +12,41 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it('объединяет инструменты, действия и настройки в устойчивые группы', () => {
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
+    const toolbar = screen.getByLabelText('Инструменты рисования');
+    const tools = toolbar.querySelector('.toolbar-drawing-tools');
+    const settings = toolbar.querySelector('.toolbar-brush-settings');
+    const actions = toolbar.querySelector('.toolbar-actions');
+    for (const name of ['Кисти, выбран Карандаш', 'Ластик', 'Заливка ведром', 'Фигуры', 'Палитра, выбран #254332']) {
+      expect(tools?.contains(screen.getByRole('button', { name }))).toBe(true);
+    }
+    for (const name of ['Отменить', 'Повторить', 'Очистить', 'Полный экран']) {
+      expect(actions?.contains(screen.getByRole('button', { name }))).toBe(true);
+    }
+    for (const name of ['Толщина линии', 'Прозрачность кисти']) {
+      expect(settings?.contains(screen.getByRole('slider', { name }))).toBe(true);
+    }
+  });
+
+  it('размещает два списка фигур в отдельной группе и сохраняет настройки при смене инструмента', () => {
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
+    fireEvent.change(screen.getByRole('slider', { name: 'Толщина линии' }), { target: { value: '18' } });
+    fireEvent.change(screen.getByRole('slider', { name: 'Прозрачность кисти' }), { target: { value: '65' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Фигуры' }));
+    const shapeOptions = screen.getByLabelText('Инструменты рисования').querySelector('.toolbar-shape-options');
+    expect(shapeOptions?.contains(screen.getByRole('combobox', { name: 'Тип фигуры' }))).toBe(true);
+    expect(shapeOptions?.contains(screen.getByRole('combobox', { name: 'Стиль фигуры' }))).toBe(true);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Тип фигуры' }), { target: { value: 'triangle' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ластик' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Фигуры' }));
+    expect((screen.getByRole('combobox', { name: 'Тип фигуры' }) as HTMLSelectElement).value).toBe('triangle');
+    expect((screen.getByRole('slider', { name: 'Толщина линии' }) as HTMLInputElement).value).toBe('18');
+    expect((screen.getByRole('slider', { name: 'Прозрачность кисти' }) as HTMLInputElement).value).toBe('65');
+  });
+
   it('показывает пиктограммы вместо текста на основных кнопках инструментов', () => {
     render(<EditorCanvas history={createProjectHistory(createProject())}
       onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
