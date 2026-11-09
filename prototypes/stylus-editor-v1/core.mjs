@@ -15,6 +15,48 @@ export function clientToNormalized(clientX, clientY, rect) {
   };
 }
 
+function boundedView(zoom, panX, panY) {
+  const boundedZoom = Math.max(1, Math.min(4, zoom));
+  const limit = (boundedZoom - 1) / 2;
+  return {
+    zoom: boundedZoom,
+    panX: Math.max(-limit, Math.min(limit, panX)),
+    panY: Math.max(-limit, Math.min(limit, panY)),
+  };
+}
+
+export function screenToArtboard(point, view) {
+  if (!point || point.x < 0 || point.x > 1 || point.y < 0 || point.y > 1) return null;
+  const x = (point.x - 0.5 - view.panX) / view.zoom + 0.5;
+  const y = (point.y - 0.5 - view.panY) / view.zoom + 0.5;
+  return x >= 0 && x <= 1 && y >= 0 && y <= 1 ? { x, y } : null;
+}
+
+export function zoomView(view, zoom, anchor = { x: 0.5, y: 0.5 }) {
+  const nextZoom = Math.max(1, Math.min(4, zoom));
+  const point = screenToArtboard(anchor, view);
+  if (!point) return view;
+  return boundedView(
+    nextZoom,
+    anchor.x - 0.5 - (point.x - 0.5) * nextZoom,
+    anchor.y - 0.5 - (point.y - 0.5) * nextZoom,
+  );
+}
+
+export function panView(view, deltaX, deltaY) {
+  return boundedView(view.zoom, view.panX + deltaX, view.panY + deltaY);
+}
+
+export function pinchView(view, previous, next) {
+  const middle = (points) => ({ x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 });
+  const distance = (points) => Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+  const beforeCenter = middle(previous);
+  const afterCenter = middle(next);
+  const beforeDistance = distance(previous);
+  const scaled = beforeDistance > 0.001 ? zoomView(view, view.zoom * distance(next) / beforeDistance, beforeCenter) : view;
+  return panView(scaled, afterCenter.x - beforeCenter.x, afterCenter.y - beforeCenter.y);
+}
+
 export function createHistory(strokes = []) {
   return { past: [], present: strokes, future: [] };
 }
