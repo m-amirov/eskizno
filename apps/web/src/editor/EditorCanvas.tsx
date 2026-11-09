@@ -2,14 +2,15 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 
 
 import { clientToNormalized, INITIAL_VIEW, normalizedWheelDelta, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState } from './geometry';
 import type { ProjectHistory } from './history';
-import { MAX_LAYERS, type DrawingProject, type PaintLayer, type Point, type ProjectAction, type Stroke } from './model';
+import { MAX_LAYERS, type BrushId, type PaintLayer, type Point, type ProjectAction, type Stroke } from './model';
 import { renderProject } from './render';
 import { PalettePopover } from './PalettePopover';
+import { BrushPicker } from './BrushPicker';
 import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
 
 type Tool = 'ink' | 'erase';
-type Gesture = { pointerId: number; layerId: string; points: Point[] };
+type Gesture = { pointerId: number; layerId: string; strokeId: string; points: Point[] };
 
 interface EditorCanvasProps {
   history: ProjectHistory;
@@ -24,16 +25,6 @@ function newId(): string {
     : `stroke-${Date.now()}-${Math.random()}`;
 }
 
-function layerWithPreview(project: DrawingProject, preview: Stroke | null, layerId: string | null): DrawingProject {
-  if (!preview || !layerId) return project;
-  return {
-    ...project,
-    layers: project.layers.map((layer) => layer.id === layerId && layer.kind === 'paint'
-      ? { ...layer, strokes: [...layer.strokes, preview] }
-      : layer),
-  };
-}
-
 export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvasProps) {
   const project = history.present;
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -42,9 +33,11 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const gesture = useRef<Gesture | null>(null);
   const touchPointers = useRef(new Map<number, Point>());
   const pinchPrevious = useRef<[Point, Point] | null>(null);
+  const paintCache = useRef(new WeakMap<PaintLayer, HTMLCanvasElement | OffscreenCanvas>());
   const [preview, setPreview] = useState<Stroke | null>(null);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [tool, setTool] = useState<Tool>('ink');
+  const [brushId, setBrushId] = useState<BrushId>('pencil');
   const [layersExpanded, setLayersExpanded] = useState(false);
   const [color, setColor] = useState(project.palette[0]);
   const [recentColors, setRecentColors] = useState<string[]>([]);
@@ -71,9 +64,11 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    renderProject(context, layerWithPreview(project, preview, gesture.current?.layerId ?? null), new Map(), {
+    renderProject(context, project, new Map(), {
       ...view,
       includeReferences: true,
+      paintCache: paintCache.current,
+      ...(preview && gesture.current ? { preview: { layerId: gesture.current.layerId, stroke: preview } } : {}),
     });
   }, [project, preview, view]);
 
@@ -95,7 +90,10 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   useEffect(() => {
     const syncFullscreen = () => setNativeFullscreen(document.fullscreenElement === layoutRef.current);
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFocusMode(false);
+      // An open tool panel owns the first Escape; the second exits focus mode.
+      if (event.key === 'Escape' && !document.querySelector(
+        '.brush-picker-popup, .palette-popover, .layer-actions-menu, .clear-dialog-backdrop',
+      )) setFocusMode(false);
     };
     document.addEventListener('fullscreenchange', syncFullscreen);
     document.addEventListener('keydown', handleEscape);
@@ -153,8 +151,8 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     return normalized ? screenToArtboard(normalized, view) : null;
   };
 
-  const previewStroke = (points: Point[]): Stroke => ({
-    id: 'live-preview', kind: tool, brushId: 'pencil', color, width: size,
+  const previewStroke = (points: Point[], strokeId: string): Stroke => ({
+    id: strokeId, kind: tool, brushId, color, width: size,
     opacity: 1, points,
   });
 
@@ -176,8 +174,9 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     if (!canDraw || gesture.current) return;
     const point = pointerPoint(event);
     if (!point) return;
-    gesture.current = { pointerId, layerId: project.activeLayerId, points: [point] };
-    setPreview(previewStroke([point]));
+    const strokeId = newId();
+    gesture.current = { pointerId, layerId: project.activeLayerId, strokeId, points: [point] };
+    setPreview(previewStroke([point], strokeId));
     event.currentTarget.setPointerCapture?.(pointerId);
   };
 
@@ -204,7 +203,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     const last = points.at(-1);
     if (last && last.x === point.x && last.y === point.y) return;
     gesture.current.points = [...points, point];
-    setPreview(previewStroke(gesture.current.points));
+    setPreview(previewStroke(gesture.current.points, gesture.current.strokeId));
   };
 
   const finishStroke = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -221,7 +220,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     const last = current.points.at(-1);
     const points = end && (!last || last.x !== end.x || last.y !== end.y)
       ? [...current.points, end] : current.points;
-    const stroke = { ...previewStroke(points), id: newId() };
+    const stroke = previewStroke(points, current.strokeId);
     gesture.current = null;
     setPreview(null);
     if (event.currentTarget.hasPointerCapture?.(current.pointerId)) {
@@ -253,7 +252,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     <div ref={layoutRef} className={focusMode ? 'studio-layout focus-mode' : 'studio-layout'}>
       <div className="studio-main">
         <div className="studio-toolbar" aria-label="Инструменты рисования">
-          <button type="button" className={tool === 'ink' ? 'tool-active' : ''} onClick={() => setTool('ink')}>Карандаш</button>
+          <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />
           <button type="button" className={tool === 'erase' ? 'tool-active' : ''} onClick={() => setTool('erase')}>Ластик</button>
           <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
             if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {

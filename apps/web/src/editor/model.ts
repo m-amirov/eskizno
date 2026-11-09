@@ -4,7 +4,8 @@ export const DOCUMENT_SCHEMA_VERSION = 2 as const;
 export const MAX_LAYERS = 16;
 export const MAX_PALETTE_COLORS = 32;
 
-export type BrushId = 'pencil' | 'liner' | 'marker' | 'soft';
+export type BrushId = 'pencil' | 'liner' | 'marker' | 'soft'
+  | 'watercolor' | 'charcoal' | 'dry' | 'airbrush' | 'calligraphy' | 'pastel';
 export type Point = { x: number; y: number };
 export type ReferenceTransform = { x: number; y: number; scale: number; rotation: number };
 
@@ -84,7 +85,10 @@ export interface CreateProjectOptions {
 }
 
 const DEFAULT_PALETTE = ['#254332', '#F0C886', '#B67C66', '#6D8CA0', '#FFFFFF'];
-const BRUSH_IDS: BrushId[] = ['pencil', 'liner', 'marker', 'soft'];
+const BRUSH_IDS: BrushId[] = [
+  'pencil', 'liner', 'marker', 'soft', 'watercolor', 'charcoal', 'dry',
+  'airbrush', 'calligraphy', 'pastel',
+];
 
 const isFiniteNumber = (value: number): boolean => Number.isFinite(value);
 const isUnit = (value: number): boolean => isFiniteNumber(value) && value >= 0 && value <= 1;

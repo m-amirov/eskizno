@@ -31,10 +31,14 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
   const [targetId, setTargetId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null);
+  const [draftLayerName, setDraftLayerName] = useState('');
   const [menuPosition, setMenuPosition] = useState({ top: 12, left: 12 });
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const confirmDeleteButtonRef = useRef<HTMLButtonElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const focusAfterRename = useRef(false);
   const paintLayerCount = layers.filter((layer) => layer.kind === 'paint').length;
   const deletingLayer = layers.find((layer) => layer.id === confirmDeleteId);
   // Portal stays within the fullscreen root (including CSS fallback) so the menu
@@ -62,6 +66,26 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
   }, [openMenuId]);
 
   useEffect(() => { if (confirmDeleteId) confirmDeleteButtonRef.current?.focus(); }, [confirmDeleteId]);
+
+  useEffect(() => {
+    if (!renamingLayerId) return;
+    renameInputRef.current?.focus();
+    renameInputRef.current?.select();
+  }, [renamingLayerId]);
+
+  useEffect(() => {
+    if (renamingLayerId || !focusAfterRename.current) return;
+    focusAfterRename.current = false;
+    menuTriggerRef.current?.focus();
+  }, [renamingLayerId]);
+
+  const finishRename = (commit: boolean, restoreFocus = false) => {
+    const name = draftLayerName.trim();
+    if (commit && !name) return;
+    if (commit && renamingLayerId) onAction({ type: 'renameLayer', layerId: renamingLayerId, name });
+    focusAfterRename.current = restoreFocus;
+    setRenamingLayerId(null);
+  };
 
   const openMenu = (layer: Layer, trigger: HTMLButtonElement) => {
     if (openMenuId === layer.id) { setOpenMenuId(null); return; }
@@ -146,9 +170,26 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
             layer.id === draggedId ? 'dragging' : '', layer.id === targetId && draggedId !== targetId ? 'drag-target' : '',
           ].filter(Boolean).join(' ')}
         >
-          <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === activeLayerId}>
-            {layer.name}{layer.id === activeLayerId ? ' · выбран' : ''}
-          </button>
+          {renamingLayerId === layer.id ? (
+            <input
+              ref={renameInputRef}
+              className="layer-rename-input"
+              type="text"
+              aria-label={`Название слоя ${layer.name}`}
+              value={draftLayerName}
+              maxLength={120}
+              onChange={(event) => setDraftLayerName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finishRename(false, true); }
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); finishRename(true, true); }
+              }}
+              onBlur={() => { if (draftLayerName.trim()) finishRename(true); else finishRename(false); }}
+            />
+          ) : (
+            <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === activeLayerId}>
+              {layer.name}{layer.id === activeLayerId ? ' · выбран' : ''}
+            </button>
+          )}
           <button type="button" className="layer-visibility-button" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} ${layer.name}`} aria-pressed={layer.visible} onClick={() => onAction({ type: 'setLayerVisibility', layerId: layer.id, visible: !layer.visible })}><EyeIcon visible={layer.visible} /></button>
           <button type="button" className="layer-menu-trigger" aria-label={`Действия со слоем ${layer.name}`} aria-haspopup="menu" aria-expanded={openMenuId === layer.id} onClick={(event) => openMenu(layer, event.currentTarget)}>
             <span aria-hidden="true">⋯</span>
@@ -176,6 +217,11 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
         const canDelete = !layer.locked && !(layer.kind === 'paint' && paintLayerCount <= 1);
         return createPortal(<div ref={menuRef} className="layer-actions-menu" role="menu" aria-label={`Действия слоя ${layer.name}`} style={menuPosition}>
           <p className="layer-actions-title">{layer.name}</p>
+          <button type="button" role="menuitem" onClick={() => {
+            setOpenMenuId(null);
+            setDraftLayerName(layer.name);
+            setRenamingLayerId(layer.id);
+          }}>Переименовать</button>
           <button type="button" role="menuitem" onClick={() => {
             onAction({ type: 'setLayerLock', layerId: layer.id, locked: !layer.locked });
             setOpenMenuId(null);

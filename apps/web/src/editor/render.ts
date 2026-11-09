@@ -1,4 +1,5 @@
-import type { DrawingProject, ReferenceLayer, Stroke } from './model';
+import type { DrawingProject, PaintLayer, ReferenceLayer, Stroke } from './model';
+import { paintBrushStroke } from './brushes';
 
 type Surface = HTMLCanvasElement | OffscreenCanvas;
 type SurfaceContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -10,6 +11,10 @@ export interface RenderOptions {
   includeReferences: boolean;
   /** Supplies real Canvas2D surfaces in pixel tests and browser surfaces at runtime. */
   createSurface?: (width: number, height: number) => Surface;
+  /** Cached rasters are keyed by immutable layer objects and survive preview frames. */
+  paintCache?: WeakMap<PaintLayer, Surface>;
+  /** An uncommitted stroke is composited onto a disposable copy of its layer. */
+  preview?: { layerId: string; stroke: Stroke };
 }
 
 function defaultSurface(width: number, height: number): Surface {
@@ -34,10 +39,14 @@ function paintStroke(
   height: number,
 ): void {
   if (!stroke.points.length) return;
+  if (stroke.kind === 'ink') {
+    paintBrushStroke(context, stroke, width, height);
+    return;
+  }
   context.save();
-  context.globalCompositeOperation = stroke.kind === 'erase' ? 'destination-out' : 'source-over';
-  context.globalAlpha = stroke.opacity;
-  context.strokeStyle = stroke.kind === 'erase' ? '#000000' : stroke.color;
+  context.globalCompositeOperation = 'destination-out';
+  context.globalAlpha = 1;
+  context.strokeStyle = '#000000';
   context.fillStyle = context.strokeStyle;
   context.lineWidth = stroke.width;
   context.lineCap = 'round';
@@ -112,10 +121,22 @@ export function renderProject(
       continue;
     }
 
-    const surface = createSurface(project.width, project.height);
-    const paintContext = surfaceContext(surface);
-    for (const stroke of layer.strokes) {
-      paintStroke(paintContext, stroke, project.width, project.height);
+    let surface = options.paintCache?.get(layer);
+    if (!surface) {
+      surface = createSurface(project.width, project.height);
+      const paintContext = surfaceContext(surface);
+      for (const stroke of layer.strokes) {
+        paintStroke(paintContext, stroke, project.width, project.height);
+      }
+      options.paintCache?.set(layer, surface);
+    }
+
+    if (options.preview?.layerId === layer.id) {
+      const previewSurface = createSurface(project.width, project.height);
+      const previewContext = surfaceContext(previewSurface);
+      previewContext.drawImage(surface, 0, 0);
+      paintStroke(previewContext, options.preview.stroke, project.width, project.height);
+      surface = previewSurface;
     }
 
     context.save();

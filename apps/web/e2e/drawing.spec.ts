@@ -74,7 +74,7 @@ test('полноэкранная студия сохраняет инструм�
   await page.getByRole('button', { name: 'Свободная студия' }).click();
   await page.getByRole('button', { name: 'Полный экран' }).click();
   await expect(page.getByRole('button', { name: 'Выйти из полного экрана' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Карандаш' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Кисти, выбран Карандаш' })).toBeVisible();
   const fullscreenSupported = await page.evaluate(() => Boolean(document.fullscreenElement));
   if (fullscreenSupported) {
     await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeHidden();
@@ -148,4 +148,31 @@ test('перетаскивание меняет порядок слоёв и о�
   await expect(list.locator('.layer-row').first()).toContainText('Слой 1');
   await page.getByRole('button', { name: 'Отменить' }).click();
   await expect(list.locator('.layer-row').first()).toContainText('Слой 2');
+});
+
+test('расширенные кисти и переименование слоя работают в одном рисунке', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await page.getByRole('button', { name: 'Кисти, выбран Карандаш' }).click();
+  await expect(page.getByRole('dialog', { name: 'Выбор кисти' }).getByRole('button', { name: /^Выбрать / })).toHaveCount(10);
+  await page.getByRole('button', { name: 'Выбрать Уголь' }).click();
+  await expect(page.getByRole('button', { name: 'Кисти, выбран Уголь' })).toBeVisible();
+
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error('Холст не виден');
+  await page.mouse.move(bounds.x + bounds.width * .4, bounds.y + bounds.height * .4);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * .6, bounds.y + bounds.height * .6, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Действия со слоем Слой 1' }).click();
+  await page.getByRole('menuitem', { name: 'Переименовать' }).click();
+  const input = page.getByRole('textbox', { name: 'Название слоя Слой 1' });
+  await input.fill('Набросок');
+  await input.press('Enter');
+  await expect(page.getByRole('button', { name: 'Действия со слоем Набросок' })).toBeVisible();
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(page.getByRole('button', { name: 'Действия со слоем Слой 1' })).toBeVisible();
 });

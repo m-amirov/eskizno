@@ -1,8 +1,9 @@
 import { createCanvas } from '@napi-rs/canvas';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { applyAction, createProject, type DrawingProject, type Stroke } from './model';
+import { applyAction, createProject, type BrushId, type DrawingProject, type Stroke } from './model';
 import { renderProject } from './render';
+import { sampleStrokePoints } from './brushes';
 
 const makeStroke = (
   id: string, color: string, kind: 'ink' | 'erase' = 'ink', width = 16,
@@ -39,6 +40,106 @@ function render(
 
 const pixel = (ctx: ReturnType<typeof render>, x = 32, y = 32) =>
   Array.from(ctx.getImageData(x, y, 1, 1).data);
+
+const brushNames = ['pencil', 'liner', 'marker', 'soft', 'watercolor', 'charcoal', 'dry', 'airbrush', 'calligraphy', 'pastel'] as BrushId[];
+
+describe('видимые особенности кистей', () => {
+  it('не разрывает тонкий аэрограф и каллиграфию после лимита отпечатков', () => {
+    const project = createProject({ width: 4096, height: 32 });
+    for (const brushId of ['airbrush', 'calligraphy'] as const) {
+      const stroke = { ...makeStroke(`long-${brushId}`, '#315B46', 'ink', 1), brushId,
+        points: [{ x: 0, y: .5 }, { x: 1, y: .5 }, { x: 0, y: .1 },
+          { x: 1, y: .1 }, { x: 0, y: .9 }, { x: 1, y: .9 }] };
+      const image = render(paint(project, project.activeLayerId, stroke)).getImageData(0, 16, 4096, 1).data;
+      for (let x = 100; x < 3996; x += 1) expect(image[x * 4 + 3]).toBeGreaterThan(0);
+    }
+  });
+  it('ограничивает число отпечатков на длинной линии, сохраняя обе конечные точки', () => {
+    const points = Array.from({ length: 15_000 }, (_, i) => ({ x: i / 14_999, y: .5 }));
+    const sampled = sampleStrokePoints(points, 4096, 4096, .1);
+    expect(sampled.length).toBeLessThanOrEqual(2600);
+    expect(sampled[0]).toEqual({ x: 0, y: 2048 });
+    expect(sampled.at(-1)).toEqual({ x: 4096, y: 2048 });
+  });
+
+  it('не перемещает существующие отпечатки, когда рисование продолжается', () => {
+    const previous = sampleStrokePoints([{ x: 0, y: .5 }, { x: .4, y: .5 }], 100, 100, 3);
+    const extended = sampleStrokePoints([{ x: 0, y: .5 }, { x: .8, y: .5 }], 100, 100, 3);
+    expect(previous.slice(0, 10)).toEqual(extended.slice(0, 10));
+  });
+  it('отображает десять разных характеров мазка, а не десять названий линера', () => {
+    const project = createProject({ width: 96, height: 96 });
+    const images = brushNames.map((brushId) => {
+      const stroke = { ...makeStroke(brushId, '#315B46', 'ink', 18), brushId };
+      const canvas = render(paint(project, project.activeLayerId, stroke));
+      expect(pixel(canvas, 48, 48)[3]).toBeGreaterThan(0);
+      return Array.from(canvas.getImageData(0, 0, 96, 96).data).join(',');
+    });
+    expect(new Set(images).size).toBe(brushNames.length);
+  });
+
+  it('все кисти оставляют видимую точку при коротком касании', () => {
+    const project = createProject({ width: 64, height: 64 });
+    for (const brushId of brushNames) {
+      const stroke = { ...makeStroke(`dot-${brushId}`, '#315B46', 'ink', 18), brushId, points: [{ x: .5, y: .5 }] };
+      expect(pixel(render(paint(project, project.activeLayerId, stroke)))[3]).toBeGreaterThan(0);
+    }
+  });
+
+  it('маркер полупрозрачный, а линер непрозрачный', () => {
+    const project = createProject({ width: 64, height: 64 });
+    const liner = pixel(render(paint(project, project.activeLayerId, makeStroke('liner', '#315B46'))));
+    const marker = pixel(render(paint(project, project.activeLayerId, { ...makeStroke('marker', '#315B46'), brushId: 'marker' })));
+    expect(liner[3]).toBe(255);
+    expect(marker[3]).toBeGreaterThan(0);
+    expect(marker[3]).toBeLessThan(230);
+  });
+
+  it('текстуры воспроизводятся пиксель-в-пиксель при повторном рендере', () => {
+    const project = createProject({ width: 96, height: 96 });
+    for (const brushId of brushNames) {
+      const stroke = { ...makeStroke(`stable-${brushId}`, '#315B46', 'ink', 18), brushId };
+      const painted = paint(project, project.activeLayerId, stroke);
+      expect(render(painted).canvas.toBuffer('image/png')).toEqual(render(painted).canvas.toBuffer('image/png'));
+    }
+  });
+
+  it('ластик остаётся полностью непрозрачным даже с выбранным аэрографом', () => {
+    const project = createProject({ width: 64, height: 64 });
+    const base = paint(project, project.activeLayerId, makeStroke('base', '#ff0000'));
+    const erased = paint(base, project.activeLayerId, { ...makeStroke('erase', '#000000', 'erase', 20), brushId: 'airbrush' });
+    expect(pixel(render(erased))).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('кэширование слоёв в интерактивном просмотре', () => {
+  it('не перерисовывает законченные штрихи на каждом кадре и не изменяет кэш ластиком', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const red = paint(base, base.activeLayerId, makeStroke('red', '#FF0000'));
+    const second = applyAction(red, { type: 'addLayer', layer: {
+      kind: 'paint', id: 'top', name: 'Синий', visible: true, locked: false, opacity: 1, strokes: [],
+    } });
+    const blue = paint(second, 'top', makeStroke('blue', '#0000FF'));
+    const canvas = createCanvas(64, 64);
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    const cache = new WeakMap();
+    const createSurface = vi.fn((width: number, height: number) => createCanvas(width, height) as unknown as HTMLCanvasElement);
+    const options = { zoom: 1, panX: 0, panY: 0, includeReferences: true, createSurface, paintCache: cache };
+    renderProject(ctx, blue, new Map(), options);
+    expect(createSurface).toHaveBeenCalledTimes(2);
+    expect(pixel(canvas.getContext('2d'))).toEqual([0, 0, 255, 255]);
+
+    renderProject(ctx, blue, new Map(), {
+      ...options, preview: { layerId: 'top', stroke: makeStroke('erasing-preview', '#000000', 'erase', 20) },
+    });
+    expect(createSurface).toHaveBeenCalledTimes(3);
+    expect(pixel(canvas.getContext('2d'))).toEqual([255, 0, 0, 255]);
+
+    renderProject(ctx, blue, new Map(), options);
+    expect(createSurface).toHaveBeenCalledTimes(3);
+    expect(pixel(canvas.getContext('2d'))).toEqual([0, 0, 255, 255]);
+  });
+});
 
 describe('пиксельный рендер независимых слоёв', () => {
   it('меняет видимый верхний цвет после перестановки слоёв', () => {

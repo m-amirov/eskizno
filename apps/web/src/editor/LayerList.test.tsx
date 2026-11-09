@@ -41,6 +41,44 @@ function layoutRows() {
 }
 
 describe('перетаскивание слоёв', () => {
+  it('переименовывает слой из меню, выделяет исходное имя и поддерживает отмену', () => {
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Действия со слоем Верхний' });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Переименовать' }));
+    const input = screen.getByRole('textbox', { name: 'Название слоя Верхний' }) as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('Верхний'.length);
+    fireEvent.change(input, { target: { value: '  Набросок лица  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Действия со слоем Набросок лица' })).toBeTruthy();
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(screen.getByRole('button', { name: 'Отменить' }));
+    expect(screen.getByRole('button', { name: 'Действия со слоем Верхний' })).toBeTruthy();
+  });
+
+  it('не сохраняет пустое имя, а Escape отменяет редактирование', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Переименовать' }));
+    const input = screen.getByRole('textbox', { name: 'Название слоя Верхний' });
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByRole('textbox', { name: 'Название слоя Верхний' })).toBeTruthy();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Действия со слоем Верхний' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+  });
+
+  it('разрешает переименовать заблокированный слой, не снимая блокировку', () => {
+    render(<Harness locked />);
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Переименовать' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Название слоя Верхний' }), { target: { value: 'Фон' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Название слоя Верхний' }), { key: 'Enter' });
+    expect((screen.getByRole('button', { name: 'Перетащить Фон' }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it('касанием поднимает нижний слой наверх и позволяет отменить перестановку', () => {
     render(<Harness />);
     layoutRows();
@@ -134,7 +172,7 @@ describe('перетаскивание слоёв', () => {
     fireEvent.click(trigger);
     const menu = screen.getByRole('menu');
     expect(menu.parentElement?.classList.contains('studio-layout')).toBe(true);
-    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Заблокировать' }));
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Переименовать' }));
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.activeElement).toBe(trigger);
   });

@@ -199,7 +199,7 @@ describe('Эскизно — оболочка приложения', () => {
       await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Полный экран' })); });
       const layout = screen.getByRole('img', { name: 'Холст для рисования' }).closest('.studio-layout');
       expect(nativeFullscreen).toBe(layout);
-      expect(screen.getByRole('button', { name: 'Карандаш' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Кисти, выбран Карандаш' })).toBeTruthy();
       expect(screen.getByRole('button', { name: 'Выйти из полного экрана' })).toBeTruthy();
 
       nativeFullscreen = null;

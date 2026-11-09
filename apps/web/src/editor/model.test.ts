@@ -35,6 +35,18 @@ const stroke: Stroke = {
 };
 
 describe('модель рисунка', () => {
+  it('принимает шесть дополнительных кистей, сохраняя старые типы без миграции', () => {
+    const project = createProject({});
+    const brushIds = ['watercolor', 'charcoal', 'dry', 'airbrush', 'calligraphy', 'pastel'] as const;
+    let result = project;
+    for (const brushId of brushIds) {
+      result = applyAction(result, {
+        type: 'addStroke', layerId: project.activeLayerId,
+        stroke: { ...stroke, id: `stroke-${brushId}`, brushId: brushId as Stroke['brushId'] },
+      });
+    }
+    expect(result.layers[0]).toMatchObject({ kind: 'paint', strokes: brushIds.map((brushId) => ({ brushId })) });
+  });
   it('создаёт проект с редактируемым активным paint-слоем', () => {
     const project = createProject({ title: 'Ветка', width: 1200, height: 900 });
 
