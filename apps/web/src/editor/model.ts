@@ -313,6 +313,31 @@ export function createProject(options: CreateProjectOptions = {}): DrawingProjec
   };
 }
 
+/** Validate stored data before passing it to the renderer; never trust IndexedDB contents. */
+export function parseDrawingProject(value: unknown): DrawingProject | null {
+  if (!value || typeof value !== 'object') return null;
+  const project = value as DrawingProject;
+  if (project.schemaVersion !== DOCUMENT_SCHEMA_VERSION || !isId(project.id)
+    || typeof project.title !== 'string' || !project.title.trim()
+    || !Number.isInteger(project.width) || !Number.isInteger(project.height)
+    || project.width < 1 || project.width > 4096 || project.height < 1 || project.height > 4096
+    || !Number.isFinite(project.createdAt) || !Number.isFinite(project.updatedAt)
+    || !Array.isArray(project.layers) || !project.layers.length || project.layers.length > MAX_LAYERS
+    || !Array.isArray(project.palette) || project.palette.length > MAX_PALETTE_COLORS
+    || !project.palette.every(isHexColor)) return null;
+  const layers = project.layers.map(copyLayer);
+  if (layers.some((layer) => !layer)) return null;
+  const validLayers = layers as Layer[];
+  if (new Set(validLayers.map((layer) => layer.id)).size !== validLayers.length
+    || !validLayers.some((layer) => layer.id === project.activeLayerId)) return null;
+  if (project.lesson && (!isId(project.lesson.id)
+    || !['adult', 'child'].includes(project.lesson.audience)
+    || !['trace', 'construct', 'free'].includes(project.lesson.mode)
+    || !Number.isInteger(project.lesson.step) || project.lesson.step < 0)) return null;
+  return { ...project, title: project.title.trim(), layers: validLayers,
+    palette: [...project.palette], ...(project.lesson ? { lesson: { ...project.lesson } } : {}) };
+}
+
 export function applyAction(project: DrawingProject, action: ProjectAction): DrawingProject {
   switch (action.type) {
     case 'clearDrawing': {

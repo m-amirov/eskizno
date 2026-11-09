@@ -12,6 +12,32 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it('аварийный PNG рендерит весь документ без зума и рамки выделения', () => {
+    const contexts = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D>();
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      if (!contexts.has(this)) contexts.set(this, { canvas: this, fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+      return contexts.get(this)!;
+    } as unknown as typeof HTMLCanvasElement.prototype.getContext);
+    const dataUrl = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,abc');
+    const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    try {
+      render(<EditorCanvas history={createProjectHistory(createProject())}
+        onAction={() => {}} onUndo={() => {}} onRedo={() => {}}
+        saveStatus="error" storageMessage="Проверьте свободное место" onRetry={() => {}} />);
+      const original = screen.getByRole('img', { name: 'Холст для рисования' });
+      fireEvent.click(screen.getByRole('button', { name: 'Увеличить' }));
+      vi.mocked(renderProject).mockClear();
+      fireEvent.click(screen.getByRole('button', { name: 'Скачать PNG' }));
+      expect(renderProject).toHaveBeenCalledTimes(1);
+      const [context, , , options] = vi.mocked(renderProject).mock.calls[0];
+      expect(context.canvas).not.toBe(original);
+      expect([context.canvas.width, context.canvas.height]).toEqual([1024, 768]);
+      expect(options).toMatchObject({ zoom: 1, panX: 0, panY: 0 });
+      expect(options.selection).toBeUndefined();
+      expect(dataUrl).toHaveBeenCalled();
+      expect(download).toHaveBeenCalledOnce();
+    } finally { getContext.mockRestore(); dataUrl.mockRestore(); download.mockRestore(); }
+  });
   it('показывает компактный заголовок слоёв и честное предупреждение о несохранённом рисунке', () => {
     render(<EditorCanvas history={createProjectHistory(createProject())}
       onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);

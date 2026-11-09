@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
-import { EditorCanvas } from './editor/EditorCanvas';
-import { createProjectHistory, commitAction, redoAction, undoAction } from './editor/history';
-import { createProject, type ProjectAction } from './editor/model';
+import { useState } from 'react';
+import { ProjectGallery } from './studio/ProjectGallery';
+import { Studio } from './studio/Studio';
+import { useLocalProjects } from './studio/useLocalProjects';
 
 type View = 'start' | 'studio' | 'projects';
 
@@ -13,21 +13,11 @@ const navigation: ReadonlyArray<{ id: View; label: string }> = [
 
 export function App() {
   const [view, setView] = useState<View>('start');
-  const [history, setHistory] = useState(() => createProjectHistory(createProject()));
-  const apply = (action: ProjectAction) => setHistory((current) => commitAction(current, action));
-
-  useEffect(() => {
-    const hasUnsavedWork = [history.present, ...history.past, ...history.future].some((project) => (
-      project.layers.length > 1 || project.layers.some((layer) => layer.kind === 'paint' && layer.strokes.length > 0)
-    ));
-    if (!hasUnsavedWork) return;
-    const warnOnExit = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warnOnExit);
-    return () => window.removeEventListener('beforeunload', warnOnExit);
-  }, [history]);
+  const storage = useLocalProjects();
+  const navigate = (next: View) => {
+    if (next === 'projects') void storage.flush();
+    setView(next);
+  };
 
   return (
     <div className={view === 'studio' ? 'app-shell app-shell-studio' : 'app-shell'}>
@@ -42,7 +32,7 @@ export function App() {
               <button
                 type="button"
                 key={id}
-                onClick={() => setView(id)}
+                onClick={() => navigate(id)}
                 className={id === view ? 'nav-button nav-button-active' : 'nav-button'}
                 aria-current={id === view ? 'page' : undefined}
               >
@@ -54,6 +44,7 @@ export function App() {
       </header>
 
       <main className="main-content">
+        {view !== 'start' && storage.migrationMessage && <p className="migration-notice" role="alert">{storage.migrationMessage}</p>}
         {view === 'start' && (
           <section className="intro-page" aria-labelledby="intro-heading">
             <div className="intro-copy">
@@ -63,7 +54,7 @@ export function App() {
                 Начните со свободной практики: пробуйте кисти, формы и слои.
                 Пошаговые уроки появятся позже.
               </p>
-              <button className="primary-button" type="button" onClick={() => setView('studio')}>
+              <button className="primary-button" type="button" onClick={() => navigate('studio')}>
                 Открыть свободную студию
               </button>
             </div>
@@ -86,34 +77,19 @@ export function App() {
           </section>
         )}
 
-        {view === 'studio' && (
-          <section className="workspace-page" aria-labelledby="studio-heading">
-            <div className="workspace-heading">
-              <p className="section-kicker">Практика без ограничений</p>
-              <h2 id="studio-heading">Свободная студия</h2>
-              <p>Рисуйте мышью на холсте и работайте с несколькими независимыми слоями.</p>
-            </div>
-            <EditorCanvas history={history} onAction={apply} onUndo={() => setHistory(undoAction)} onRedo={() => setHistory(redoAction)} />
-          </section>
-        )}
+        {view === 'studio' && <Studio history={storage.history} saveStatus={storage.saveStatus}
+          storageMessage={storage.storageMessage} onAction={storage.apply} onUndo={storage.undo} onRedo={storage.redo}
+          onRetry={() => { void storage.retry(); }} />}
 
-        {view === 'projects' && (
-          <section className="projects-page" aria-labelledby="projects-heading">
-            <h2 id="projects-heading">Мои работы</h2>
-            <section className="empty-projects" aria-labelledby="empty-projects-heading">
-              <div className="empty-projects-art">
-                <div className="empty-projects-paper" aria-hidden="true" />
-              </div>
-              <div className="empty-projects-copy">
-                <h3 id="empty-projects-heading">Здесь пока нет работ</h3>
-                <p>Сохранение рисунков появится позже. Сейчас черновик доступен в студии, но после перезагрузки рисунок исчезнет.</p>
-                <button className="primary-button" type="button" onClick={() => setView('studio')}>
-                  Перейти в студию
-                </button>
-              </div>
-            </section>
-          </section>
-        )}
+        {view === 'projects' && <>
+          {storage.storageMessage && <div className="gallery-storage-error" role="alert">{storage.storageMessage}
+            <button className="secondary-button" type="button" onClick={() => { void storage.retry(); }}>Повторить сохранение</button>
+          </div>}
+          <ProjectGallery ready={storage.ready} projects={storage.projects} activeId={storage.history.present.id}
+            onNew={() => { void storage.createNew().then((created) => { if (created) setView('studio'); }); }}
+            onOpen={(id) => { void storage.open(id).then((okay) => { if (okay) setView('studio'); }); }}
+            onDelete={storage.remove} onLoadPreview={storage.loadPreview} />
+        </>}
       </main>
     </div>
   );
