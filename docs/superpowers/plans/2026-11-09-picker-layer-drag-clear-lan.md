@@ -57,7 +57,7 @@
 
 - [x] Confirm Vite dev client reload path; provide `npm run lan` as a production preview build bound to LAN, with no HMR.
 - [x] Run entire unit suite, production build, prototype core tests, git diff --check; attempt browser E2E, record blockers.
-- [ ] Update PR #10 branch and PR body, leave Draft.
+- [x] Update PR #10 branch and PR body, leave Draft.
 
 ## Проверки 2026-11-09
 
