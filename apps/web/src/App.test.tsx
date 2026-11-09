@@ -24,6 +24,20 @@ describe('Эскизно — оболочка приложения', () => {
     expect(screen.getByRole('heading', { name: 'Мои работы', level: 2 })).toBeTruthy();
   });
 
+  it('показывает аккуратное пустое состояние с честным предупреждением и возвратом в студию', () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Мои работы' }));
+
+    const empty = screen.getByRole('region', { name: 'Здесь пока нет работ' });
+    expect(empty.querySelector('.empty-projects-paper[aria-hidden="true"]')).toBeTruthy();
+    expect(screen.getByText(/после перезагрузки рисунок исчезнет/i)).toBeTruthy();
+    expect(screen.queryByText('Ваше пространство')).toBeNull();
+    expect(screen.queryByText(/Галерея появится на следующем этапе/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Перейти в студию' }));
+    expect(screen.getByRole('heading', { name: 'Свободная студия', level: 2 })).toBeTruthy();
+  });
+
   it('рисует штрих мышью, отменяет/возвращает его и сохраняет черновик при переключении разделов', () => {
     const originalRect = HTMLCanvasElement.prototype.getBoundingClientRect;
     HTMLCanvasElement.prototype.getBoundingClientRect = () => ({

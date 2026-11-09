@@ -91,17 +91,19 @@ export function App() {
 
         {view === 'projects' && (
           <section className="projects-page" aria-labelledby="projects-heading">
-            <p className="section-kicker">Ваше пространство</p>
             <h2 id="projects-heading">Мои работы</h2>
-            <div className="empty-projects">
-              <div>
-                <strong>Здесь пока нет сохранённых работ</strong>
-                <p>Галерея появится на следующем этапе. Текущий черновик доступен в студии до перезагрузки страницы.</p>
+            <section className="empty-projects" aria-labelledby="empty-projects-heading">
+              <div className="empty-projects-art">
+                <div className="empty-projects-paper" aria-hidden="true" />
               </div>
-              <button className="secondary-button" type="button" onClick={() => setView('studio')}>
-                Перейти в студию
-              </button>
-            </div>
+              <div className="empty-projects-copy">
+                <h3 id="empty-projects-heading">Здесь пока нет работ</h3>
+                <p>Сохранение рисунков появится позже. Сейчас черновик доступен в студии, но после перезагрузки рисунок исчезнет.</p>
+                <button className="primary-button" type="button" onClick={() => setView('studio')}>
+                  Перейти в студию
+                </button>
+              </div>
+            </section>
           </section>
         )}
       </main>
