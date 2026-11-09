@@ -68,7 +68,7 @@
 
 - [x] Confirm branch diff scope, actual renderer traits, all existing feature regressions, and no accidental style changes.
 - [x] Attempt browser E2E in available environment; clearly name environment-specific failures.
-- [ ] Update the existing Draft PR #10, verify its remote HEAD and report tests/limitations without claiming unexecuted PASS.
+- [x] Update the existing Draft PR #10, verify its remote HEAD and report tests/limitations without claiming unexecuted PASS.
 
 **Verification (2026-11-09):** 86/86 unit tests passed, TypeScript and Vite build passed. Browser E2E attempted; `/usr/bin/chromium` failed to create a system socket (`Operation not permitted`), and bundled Chromium was absent. Remote PR must remain Draft until a real browser check passes.
 
