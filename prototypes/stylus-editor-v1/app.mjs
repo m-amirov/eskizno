@@ -166,10 +166,15 @@ function pickTool(nextTool) {
   }
   canvas.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair';
   const width = tool === 'eraser' ? eraser.width : brush.width;
-  $('size').min = tool === 'eraser' ? '4' : '1';
-  $('size').max = tool === 'eraser' ? '50' : '16';
-  $('size').value = String(width);
+  for (const id of ['size', 'mobile-size']) {
+    const slider = $(id);
+    slider.min = tool === 'eraser' ? '4' : '1';
+    slider.max = tool === 'eraser' ? '50' : '16';
+    slider.value = String(width);
+  }
+  $('size').setAttribute('aria-label', tool === 'eraser' ? 'Размер ластика' : 'Размер кисти');
   $('size-value').textContent = String(width);
+  $('mobile-size-value').textContent = String(width);
   $('tool-status').textContent = `${tool === 'eraser' ? 'Ластик' : 'Кисть'} · ${width} px`;
 }
 
@@ -285,11 +290,12 @@ $('tool-brush').addEventListener('click', () => pickTool('brush'));
 $('tool-eraser').addEventListener('click', () => pickTool('eraser'));
 $('undo').addEventListener('click', () => applyHistory(undo(history)));
 $('redo').addEventListener('click', () => applyHistory(redo(history)));
-$('size').addEventListener('input', (event) => {
+function changeToolSize(event) {
   if (tool === 'eraser') eraser.width = Number(event.target.value);
   else brush.width = Number(event.target.value);
   pickTool(tool);
-});
+}
+for (const id of ['size', 'mobile-size']) $(id).addEventListener('input', changeToolSize);
 document.querySelectorAll('.color-swatch').forEach((button) => button.addEventListener('click', () => {
   brush.color = button.dataset.color;
   document.querySelectorAll('.color-swatch').forEach((swatch) => { const active = swatch === button; swatch.classList.toggle('active',active); swatch.setAttribute('aria-pressed',String(active)); });
