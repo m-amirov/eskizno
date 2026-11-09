@@ -7,7 +7,8 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:8765',
     browserName: 'chromium',
     launchOptions: {
-      executablePath: process.env.ESKIZNO_CHROMIUM_PATH || '/usr/bin/chromium',
+      // By default, use Playwright's bundled Chromium on any supported OS.
+      executablePath: process.env.ESKIZNO_CHROMIUM_PATH || undefined,
       args: ['--no-sandbox'],
     },
   },
