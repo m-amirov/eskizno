@@ -6,7 +6,6 @@ import {
   clientToNormalized,
   createHistory,
   addStroke,
-  eraseAt,
   undo,
   redo,
   changeMode,
@@ -41,12 +40,15 @@ test('stroke history supports undo redo and clears redo after new work', () => {
   assert.equal(redo(afterNewStroke).present[0].id, 'line-two');
 });
 
-test('eraser removes a nearby stroke and undo restores it', () => {
-  const first = addStroke(createHistory([]), segment);
-  const erased = eraseAt(first, { x: 0.35, y: 0.21 }, 0.03);
-  assert.equal(erased.present.length, 0);
-  assert.equal(undo(erased).present[0].id, 'line-one');
-  assert.equal(eraseAt(first, { x: 0.35, y: 0.8 }, 0.03), first);
+test('eraser is a reversible drawing operation and survives local save', () => {
+  const eraser = { ...segment, id: 'erase-one', kind: 'erase', color: '#000000', width: 24, points: [{ x: .35, y: .1 }, { x: .35, y: .3 }] };
+  const ink = addStroke(createHistory([]), segment);
+  const withEraser = addStroke(ink, eraser);
+  assert.deepEqual(withEraser.present, [segment, eraser]);
+  assert.deepEqual(undo(withEraser).present, [segment]);
+  assert.deepEqual(redo(undo(withEraser)).present, [segment, eraser]);
+  assert.deepEqual(restoreDocument(JSON.stringify({ ...createDocument(), strokes: withEraser.present })).strokes, [segment, eraser]);
+  assert.equal(restoreDocument(JSON.stringify({ ...createDocument(), strokes: [{ ...eraser, kind: 'unknown' }] })), null);
 });
 
 test('mode, step and age group changes preserve user strokes', () => {
