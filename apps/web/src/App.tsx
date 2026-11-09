@@ -1,4 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { EditorCanvas } from './editor/EditorCanvas';
+import { createProjectHistory, commitAction, redoAction, undoAction } from './editor/history';
+import { createProject, type ProjectAction } from './editor/model';
 
 type View = 'start' | 'studio' | 'projects';
 
@@ -10,6 +13,21 @@ const navigation: ReadonlyArray<{ id: View; label: string }> = [
 
 export function App() {
   const [view, setView] = useState<View>('start');
+  const [history, setHistory] = useState(() => createProjectHistory(createProject()));
+  const apply = (action: ProjectAction) => setHistory((current) => commitAction(current, action));
+
+  useEffect(() => {
+    const hasUnsavedWork = [history.present, ...history.past, ...history.future].some((project) => (
+      project.layers.length > 1 || project.layers.some((layer) => layer.kind === 'paint' && layer.strokes.length > 0)
+    ));
+    if (!hasUnsavedWork) return;
+    const warnOnExit = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnOnExit);
+    return () => window.removeEventListener('beforeunload', warnOnExit);
+  }, [history]);
 
   return (
     <div className="app-shell">
@@ -65,15 +83,9 @@ export function App() {
             <div className="workspace-heading">
               <p className="section-kicker">Практика без ограничений</p>
               <h2 id="studio-heading">Свободная студия</h2>
-              <p>Здесь будет редактор для рисунков и загруженных эскизов.</p>
+              <p>Рисуйте мышью на холсте и работайте с несколькими независимыми слоями.</p>
             </div>
-            <div className="empty-workspace">
-              <div className="empty-workspace-content">
-                <span className="empty-workspace-symbol" aria-hidden="true">✎</span>
-                <strong>Место для вашего рисунка</strong>
-                <span>Холст, кисти, палитра и слои появятся в следующих этапах.</span>
-              </div>
-            </div>
+            <EditorCanvas history={history} onAction={apply} onUndo={() => setHistory(undoAction)} onRedo={() => setHistory(redoAction)} />
           </section>
         )}
 
@@ -83,8 +95,8 @@ export function App() {
             <h2 id="projects-heading">Мои работы</h2>
             <div className="empty-projects">
               <div>
-                <strong>Здесь пока нет работ</strong>
-                <p>Сохранение и открытие проектов добавим вместе с редактором.</p>
+                <strong>Здесь пока нет сохранённых работ</strong>
+                <p>Галерея появится на следующем этапе. Текущий черновик доступен в студии до перезагрузки страницы.</p>
               </div>
               <button className="secondary-button" type="button" onClick={() => setView('studio')}>
                 Перейти в студию

@@ -1,0 +1,180 @@
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
+
+import { clientToNormalized, INITIAL_VIEW, screenToArtboard, zoomView, type ViewState } from './geometry';
+import type { ProjectHistory } from './history';
+import { MAX_LAYERS, type DrawingProject, type PaintLayer, type Point, type ProjectAction, type Stroke } from './model';
+import { renderProject } from './render';
+
+type Tool = 'ink' | 'erase';
+type Gesture = { pointerId: number; layerId: string; points: Point[] };
+
+interface EditorCanvasProps {
+  history: ProjectHistory;
+  onAction: (action: ProjectAction) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+}
+
+function newId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `stroke-${Date.now()}-${Math.random()}`;
+}
+
+function layerWithPreview(project: DrawingProject, preview: Stroke | null, layerId: string | null): DrawingProject {
+  if (!preview || !layerId) return project;
+  return {
+    ...project,
+    layers: project.layers.map((layer) => layer.id === layerId && layer.kind === 'paint'
+      ? { ...layer, strokes: [...layer.strokes, preview] }
+      : layer),
+  };
+}
+
+export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvasProps) {
+  const project = history.present;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const gesture = useRef<Gesture | null>(null);
+  const [preview, setPreview] = useState<Stroke | null>(null);
+  const [view, setView] = useState<ViewState>(INITIAL_VIEW);
+  const [tool, setTool] = useState<Tool>('ink');
+  const [layersExpanded, setLayersExpanded] = useState(false);
+  const [color, setColor] = useState(project.palette[0]);
+  const [size, setSize] = useState(8);
+  const active = project.layers.find((layer) => layer.id === project.activeLayerId);
+  const canDraw = active?.kind === 'paint' && active.visible && !active.locked;
+  const pointCount = project.layers.reduce((sum, layer) => sum + (layer.kind === 'paint' ? layer.strokes.length : 0), 0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    renderProject(context, layerWithPreview(project, preview, gesture.current?.layerId ?? null), new Map(), {
+      ...view,
+      includeReferences: true,
+    });
+  }, [project, preview, view]);
+
+  const pointerPoint = (event: PointerEvent<HTMLCanvasElement>): Point | null => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const normalized = clientToNormalized(event.clientX, event.clientY, rect);
+    return normalized ? screenToArtboard(normalized, view) : null;
+  };
+
+  const previewStroke = (points: Point[]): Stroke => ({
+    id: 'live-preview', kind: tool, brushId: 'pencil', color, width: size,
+    opacity: 1, points,
+  });
+
+  const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.button !== 0 || !canDraw || gesture.current) return;
+    const point = pointerPoint(event);
+    if (!point) return;
+    const pointerId = event.pointerId ?? 1;
+    gesture.current = { pointerId, layerId: project.activeLayerId, points: [point] };
+    setPreview(previewStroke([point]));
+    event.currentTarget.setPointerCapture?.(pointerId);
+  };
+
+  const moveStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!gesture.current || gesture.current.pointerId !== (event.pointerId ?? 1)) return;
+    const point = pointerPoint(event);
+    if (!point) return;
+    const points = gesture.current.points;
+    const last = points.at(-1);
+    if (last && last.x === point.x && last.y === point.y) return;
+    gesture.current.points = [...points, point];
+    setPreview(previewStroke(gesture.current.points));
+  };
+
+  const finishStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    const current = gesture.current;
+    if (!current || current.pointerId !== (event.pointerId ?? 1)) return;
+    const end = pointerPoint(event);
+    const last = current.points.at(-1);
+    const points = end && (!last || last.x !== end.x || last.y !== end.y)
+      ? [...current.points, end] : current.points;
+    const stroke = { ...previewStroke(points), id: newId() };
+    gesture.current = null;
+    setPreview(null);
+    if (event.currentTarget.hasPointerCapture?.(current.pointerId)) {
+      event.currentTarget.releasePointerCapture(current.pointerId);
+    }
+    onAction({ type: 'addStroke', layerId: current.layerId, stroke });
+  };
+
+  const cancelStroke = () => { gesture.current = null; setPreview(null); };
+
+  const addLayer = () => {
+    if (project.layers.length >= MAX_LAYERS) return;
+    const layer: PaintLayer = {
+      kind: 'paint', id: newId(), name: `Слой ${project.layers.filter((entry) => entry.kind === 'paint').length + 1}`,
+      visible: true, locked: false, opacity: 1, strokes: [],
+    };
+    onAction({ type: 'addLayer', layer });
+    onAction({ type: 'setActiveLayer', layerId: layer.id });
+  };
+
+  return (
+    <div className="studio-layout">
+      <div className="studio-main">
+        <div className="studio-toolbar" aria-label="Инструменты рисования">
+          <button type="button" className={tool === 'ink' ? 'tool-active' : ''} onClick={() => setTool('ink')}>Карандаш</button>
+          <button type="button" className={tool === 'erase' ? 'tool-active' : ''} onClick={() => setTool('erase')}>Ластик</button>
+          <label className="studio-control">Цвет <input type="color" aria-label="Цвет линии" value={color} onChange={(event) => setColor(event.target.value)} disabled={tool === 'erase'} /></label>
+          <label className="studio-control">Толщина <input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /> <span>{size} px</span></label>
+          <span className="toolbar-divider" aria-hidden="true" />
+          <button type="button" onClick={onUndo} disabled={!history.past.length}>Отменить</button>
+          <button type="button" onClick={onRedo} disabled={!history.future.length}>Повторить</button>
+        </div>
+        <div className="artboard-stage">
+          <canvas
+            ref={canvasRef}
+            className="drawing-canvas"
+            width={project.width}
+            height={project.height}
+            role="img"
+            aria-label="Холст для рисования"
+            onPointerDown={startStroke}
+            onPointerMove={moveStroke}
+            onPointerUp={finishStroke}
+            onPointerCancel={cancelStroke}
+          />
+        </div>
+        <div className="canvas-footer">
+          <span>Штрихов: {pointCount}</span>
+          <div className="zoom-controls">
+            <button type="button" aria-label="Уменьшить" onClick={() => setView((current) => zoomView(current, current.zoom - 0.25))}>−</button>
+            <span aria-live="polite">{Math.round(view.zoom * 100)}%</span>
+            <button type="button" aria-label="Увеличить" onClick={() => setView((current) => zoomView(current, current.zoom + 0.25))}>+</button>
+            <button type="button" onClick={() => setView(INITIAL_VIEW)}>Сброс масштаба</button>
+          </div>
+        </div>
+      </div>
+      <aside className="layers-panel" aria-label="Слои рисунка">
+        <button className="layers-toggle" type="button" aria-expanded={layersExpanded} onClick={() => setLayersExpanded((value) => !value)}>
+          Слои ({project.layers.length}) · {layersExpanded ? 'свернуть' : 'развернуть'}
+        </button>
+        <div className={layersExpanded ? 'layers-body open' : 'layers-body'}>
+          <h3>Слои</h3>
+          <p className="layers-hint">Верхний слой перекрывает нижний. Ластик действует только на выбранный слой.</p>
+          <div className="layers-list">
+            {[...project.layers].reverse().map((layer) => (
+              <div className={layer.id === project.activeLayerId ? 'layer-row selected' : 'layer-row'} key={layer.id}>
+                <button type="button" onClick={() => onAction({ type: 'setActiveLayer', layerId: layer.id })} disabled={layer.kind !== 'paint'} aria-pressed={layer.id === project.activeLayerId}>
+                  {layer.name}{layer.id === project.activeLayerId ? ' · выбран' : ''}
+                </button>
+                <button type="button" aria-label={`${layer.visible ? 'Скрыть' : 'Показать'} ${layer.name}`} onClick={() => onAction({ type: 'setLayerVisibility', layerId: layer.id, visible: !layer.visible })}>{layer.visible ? '◉' : '○'}</button>
+                <button type="button" aria-label={`${layer.locked ? 'Разблокировать' : 'Заблокировать'} ${layer.name}`} onClick={() => onAction({ type: 'setLayerLock', layerId: layer.id, locked: !layer.locked })}>{layer.locked ? '🔒' : '○'}</button>
+              </div>
+            ))}
+          </div>
+          <button className="secondary-button add-layer" type="button" onClick={addLayer} disabled={project.layers.length >= MAX_LAYERS}>Добавить слой</button>
+          {!canDraw && <p className="layers-hint" role="status">Выбранный слой скрыт или заблокирован.</p>}
+          <p className="draft-warning" role="note">Черновик пока хранится только до перезагрузки страницы. Сохранение появится на следующем этапе.</p>
+        </div>
+      </aside>
+    </div>
+  );
+}
