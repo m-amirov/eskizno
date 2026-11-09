@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { applyAction, createProject } from './model';
 import { createProjectHistory } from './history';
@@ -7,10 +7,30 @@ import { EditorCanvas } from './EditorCanvas';
 import { renderProject } from './render';
 
 vi.mock('./render', () => ({ renderProject: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it('показывает пиктограммы вместо текста на основных кнопках инструментов', () => {
+    render(<EditorCanvas history={createProjectHistory(createProject())}
+      onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
+    for (const name of ['Кисти, выбран Карандаш', 'Ластик', 'Заливка ведром', 'Фигуры',
+      'Отменить', 'Повторить', 'Очистить', 'Полный экран']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+      expect(button.textContent?.trim()).toBe('');
+      expect(button.getAttribute('title')).toBeTruthy();
+    }
+    expect(screen.queryByRole('button', { name: 'Переместить фигуру' })).toBeNull();
+    for (const name of ['Уменьшить', 'Увеличить', 'Сброс масштаба']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+      expect(button.textContent?.trim()).toBe('');
+    }
+  });
   it('сбрасывает preview, если Undo во время drag удалил фигуру из документа', () => {
+    vi.useFakeTimers();
     const base = createProject();
     const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
       shape: { id: 'existing', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .4, y: .4 },
@@ -20,8 +40,8 @@ describe('связь выбранной кисти и штриха', () => {
       onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
     const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
     canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
-    fireEvent.click(screen.getByRole('button', { name: 'Переместить фигуру' }));
     fireEvent.pointerDown(canvas, { pointerId: 1, clientX: 100, clientY: 80, button: 0 });
+    waitForLongPress();
     fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 180, clientY: 110 });
     expect(vi.mocked(renderProject).mock.lastCall?.[3].previewShape).toBeTruthy();
     rerender(<EditorCanvas history={createProjectHistory(base)}
@@ -77,6 +97,7 @@ describe('связь выбранной кисти и штриха', () => {
   });
 
   it('создаёт треугольник с заливкой и перемещает существующую фигуру одним действием', () => {
+    vi.useFakeTimers();
     const base = createProject();
     const onAction = vi.fn();
     const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
@@ -94,15 +115,16 @@ describe('связь выбранной кисти и штриха', () => {
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addShape',
       shape: expect.objectContaining({ kind: 'triangle', style: 'fill', from: { x: .5, y: .2 },
         to: { x: .8, y: .8 } }) }));
-    fireEvent.click(screen.getByRole('button', { name: 'Переместить фигуру' }));
     fireEvent.pointerDown(canvas, { pointerId: 2, clientX: 80, clientY: 60, button: 0 });
+    waitForLongPress();
     fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 120, clientY: 90 });
     fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 120, clientY: 90, button: 0 });
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({
       type: 'updateShape', shapeId: 'existing', from: { x: .2, y: .2 }, to: { x: .4, y: .4 },
     }));
   });
-  it('даёт изменить размер фигуры маркером на узком холсте и прячет выделение при выборе кисти', () => {
+  it('даёт изменить размер фигуры маркером после долгого нажатия на узком холсте', () => {
+    vi.useFakeTimers();
     const base = createProject();
     const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
       shape: { id: 'small', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .4, y: .4 },
@@ -111,8 +133,8 @@ describe('связь выбранной кисти и штриха', () => {
     render(<EditorCanvas history={createProjectHistory(withShape)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
     const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
     canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 320, height: 240, right: 320, bottom: 240, toJSON: () => ({}) });
-    fireEvent.click(screen.getByRole('button', { name: 'Переместить фигуру' }));
     fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 80, clientY: 60 });
+    waitForLongPress();
     fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 80, clientY: 60 });
     expect(vi.mocked(renderProject).mock.lastCall?.[3].selection?.shapeId).toBe('small');
     fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 32, clientY: 24 });
@@ -121,8 +143,163 @@ describe('связь выбранной кисти и штриха', () => {
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({
       type: 'updateShape', shapeId: 'small', from: { x: .05, y: .05 }, to: { x: .4, y: .4 },
     }));
-    fireEvent.click(screen.getByRole('button', { name: 'Кисти, выбран Карандаш' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Выбрать Карандаш' }));
+    fireEvent.pointerDown(canvas, { pointerId: 3, button: 0, clientX: 300, clientY: 220 });
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selection).toBeUndefined();
+  });
+
+  it('быстрый мазок кистью поверх существующей фигуры рисует штрих, а не перемещает фигуру', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 103, clientY: 93 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 130, clientY: 120 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 140, clientY: 130 });
+    act(() => { vi.advanceTimersByTime(700); });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: expect.arrayContaining([{ x: .25, y: .3 }, { x: .2575, y: .31 }, { x: .325, y: .4 }]) }) }));
+  });
+
+  it('сохраняет маленький замкнутый мазок поверх фигуры без выхода за порог удержания', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 103, clientY: 92 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 105, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ points: [
+        { x: .25, y: .3 }, { x: .2575, y: .30666666666666664 }, { x: .2625, y: .3 }, { x: .25, y: .3 },
+      ] }) }));
+  });
+
+  it('маленькое движение ластиком по фигуре не теряет точки', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Ластик' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 104, clientY: 93 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke',
+      stroke: expect.objectContaining({ kind: 'erase', points: [
+        { x: .25, y: .3 }, { x: .26, y: .31 }, { x: .25, y: .3 },
+      ] }) }));
+  });
+
+  it('короткое касание ведром существующей фигуры выполняет заливку', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Заливка ведром' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    act(() => { vi.advanceTimersByTime(700); });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addFill' }));
+  });
+
+  it('второй палец отменяет отложенное перемещение фигуры', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: 'touch', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerDown(canvas, { pointerId: 2, pointerType: 'touch', button: 0, clientX: 200, clientY: 90 });
+    waitForLongPress();
+    fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: 'touch', clientX: 200, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 90 });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selection).toBeUndefined();
+  });
+
+  it('простое удержание фигуры выделяет её, но не добавляет действие в историю', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'ellipse', from: { x: .123456789, y: .123456789 }, to: { x: .51346789, y: .51346789 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    act(() => { vi.advanceTimersByTime(499); });
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selection).toBeUndefined();
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selection?.shapeId).toBe('shape-1');
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('отмена указателя до истечения таймера не оставляет скрытого редактирования', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerCancel(canvas, { pointerId: 1, clientX: 100, clientY: 90 });
+    act(() => { vi.advanceTimersByTime(700); });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 150, clientY: 150 });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selection).toBeUndefined();
+  });
+
+  it('удаление слоя с фигурой отменяет ожидание долгого нажатия', () => {
+    vi.useFakeTimers();
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-1', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 },
+        color: '#444444', width: 3, style: 'both', opacity: 1 } });
+    const onAction = vi.fn();
+    const { rerender } = render(<EditorCanvas history={createProjectHistory(project)}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 90 });
+    rerender(<EditorCanvas history={createProjectHistory(base)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    waitForLongPress();
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 150, clientY: 150 });
+    expect(onAction).not.toHaveBeenCalled();
     expect(vi.mocked(renderProject).mock.lastCall?.[3].selection).toBeUndefined();
   });
   it('Escape сначала закрывает кисти, не выключая резервный полноэкранный режим', () => {

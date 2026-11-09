@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { HsvColorEditor } from './HsvColorEditor';
+import { ToolIcon } from './ToolIcon';
 
 interface PalettePopoverProps {
   color: string;
@@ -65,12 +66,13 @@ export function PalettePopover({ color, colors, recentColors, onSelect, onSaveCo
         className={open ? 'palette-trigger selected' : 'palette-trigger'}
         type="button"
         aria-label={`Палитра, выбран ${color.toUpperCase()}`}
+        title="Палитра"
         aria-expanded={open}
         aria-controls={open ? popupId : undefined}
         onClick={toggle}
       >
-        <span className="palette-preview" style={{ backgroundColor: color }} aria-hidden="true" />
-        <span>Палитра</span>
+        <ToolIcon name="palette" />
+        <span className="palette-icon-color" style={{ backgroundColor: color }} aria-hidden="true" />
       </button>
       {open && (
         <div className="palette-popover" id={popupId} role="dialog" aria-label="Палитра цветов" style={{ ...placement, maxHeight: Math.max(0, window.innerHeight - placement.top - 12) }}>

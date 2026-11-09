@@ -7,16 +7,21 @@ import { renderProject } from './render';
 import { hitTestShape, moveShape, resizeShape, shapeHandleAt, type ShapeHandle } from './shapeGeometry';
 import { PalettePopover } from './PalettePopover';
 import { BrushPicker } from './BrushPicker';
+import { ToolIcon } from './ToolIcon';
 import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
 
-type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'select';
+type Tool = 'ink' | 'erase' | 'fill' | 'shape';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; strokeId: string; points: Point[] };
 type FillGesture = { kind: 'fill'; pointerId: number; layerId: string; point: Point };
 type ShapeGesture = { kind: 'shape'; pointerId: number; layerId: string; shape: Shape };
 type EditGesture = { kind: 'edit'; pointerId: number; layerId: string; shapeId: string;
   original: Shape; start: Point; current: Shape; handle: ShapeHandle | 'move' };
-type Gesture = StrokeGesture | FillGesture | ShapeGesture | EditGesture;
+type PendingGesture = { kind: 'pending'; pointerId: number; layerId: string; shape: Shape;
+  start: Point; points: Point[]; clientX: number; clientY: number; timer: ReturnType<typeof setTimeout> };
+type Gesture = StrokeGesture | FillGesture | ShapeGesture | EditGesture | PendingGesture;
+const SHAPE_HOLD_MS = 500;
+const DRAW_MOVEMENT_THRESHOLD_PX = 8;
 
 interface EditorCanvasProps {
   history: ProjectHistory;
@@ -90,7 +95,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       ...(previewShape && gesture.current ? { previewShape: {
         layerId: gesture.current.layerId, shape: previewShape, existing: gesture.current.kind === 'edit',
       } } : {}),
-      ...(tool === 'select' && selectedShape && active?.kind === 'paint'
+      ...(selectedShape && active?.kind === 'paint'
         ? { selection: { layerId: active.id, shapeId: selectedShape.id } } : {}),
     });
   }, [project, preview, previewShape, view, selectedShapeId, tool]);
@@ -98,6 +103,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   // Undo, layer deletion, lock toggles and tool switches invalidate an in-progress gesture.
   useEffect(() => {
     if (gesture.current && gestureProject.current !== project) {
+      if (gesture.current.kind === 'pending') clearTimeout(gesture.current.timer);
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
@@ -107,11 +113,16 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   }, [project]);
   useEffect(() => {
     if (gesture.current) {
+      if (gesture.current.kind === 'pending') clearTimeout(gesture.current.timer);
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
     }
   }, [tool]);
+
+  useEffect(() => () => {
+    if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -197,6 +208,22 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     opacity: tool === 'erase' ? 1 : brushOpacity / 100, points,
   });
 
+  const beginDrawing = (pointerId: number, layerId: string, point: Point): Exclude<Gesture, EditGesture | PendingGesture> => {
+    if (tool === 'fill') return { kind: 'fill', pointerId, layerId, point };
+    if (tool === 'shape') {
+      const shape: Shape = {
+        id: newId(), kind: shapeKind, from: point, to: point, color, width: size,
+        style: (shapeKind === 'line' || shapeKind === 'arrow') ? 'outline' : shapeStyle,
+        opacity: 1,
+      };
+      setPreviewShape(shape);
+      return { kind: 'shape', pointerId, layerId, shape };
+    }
+    const strokeId = newId();
+    setPreview(previewStroke([point], strokeId));
+    return { kind: 'stroke', pointerId, layerId, strokeId, points: [point] };
+  };
+
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return;
     const pointerId = event.pointerId ?? 1;
@@ -216,13 +243,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     const point = pointerPoint(event);
     if (!point) return;
     gestureProject.current = project;
-    if (tool === 'fill') {
-      gesture.current = { kind: 'fill', pointerId, layerId: project.activeLayerId, point };
-      event.currentTarget.setPointerCapture?.(pointerId);
-      return;
-    }
-    if (tool === 'select') {
-      if (active?.kind !== 'paint') return;
+    if (active?.kind === 'paint') {
       const shapes = getShapes(active);
       const rect = event.currentTarget.getBoundingClientRect();
       const scale = Math.max(.001, rect.width / project.width * view.zoom);
@@ -230,27 +251,30 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         ? shapeHandleAt(selectedShape, point, project.width, project.height, scale) : null;
       const target = handle ? selectedShape : [...shapes].reverse().find((shape) =>
         hitTestShape(shape, point, project.width, project.height, scale));
-      if (!target) { setSelectedShapeId(null); return; }
-      setSelectedShapeId(target.id);
-      gesture.current = { kind: 'edit', pointerId, layerId: active.id, shapeId: target.id,
-        original: target, start: point, current: target, handle: handle ?? 'move' };
-      event.currentTarget.setPointerCapture?.(pointerId);
-      return;
+      if (handle && target) {
+        gesture.current = { kind: 'edit', pointerId, layerId: active.id, shapeId: target.id,
+          original: target, start: point, current: target, handle };
+        event.currentTarget.setPointerCapture?.(pointerId);
+        return;
+      }
+      if (target) {
+        const timer = setTimeout(() => {
+          const current = gesture.current;
+          if (current?.kind !== 'pending' || current.pointerId !== pointerId ||
+            current.shape.id !== target.id || touchPointers.current.size > 1) return;
+          gesture.current = { kind: 'edit', pointerId, layerId: active.id, shapeId: target.id,
+            original: target, start: point, current: target, handle: 'move' };
+          setSelectedShapeId(target.id);
+          setPreviewShape(target);
+        }, SHAPE_HOLD_MS);
+        gesture.current = { kind: 'pending', pointerId, layerId: active.id, shape: target,
+          start: point, points: [point], clientX: event.clientX, clientY: event.clientY, timer };
+        event.currentTarget.setPointerCapture?.(pointerId);
+        return;
+      }
     }
-    if (tool === 'shape') {
-      const shape: Shape = {
-        id: newId(), kind: shapeKind, from: point, to: point, color, width: size,
-        style: (shapeKind === 'line' || shapeKind === 'arrow') ? 'outline' : shapeStyle,
-        opacity: 1,
-      };
-      gesture.current = { kind: 'shape', pointerId, layerId: project.activeLayerId, shape };
-      setPreviewShape(shape);
-      event.currentTarget.setPointerCapture?.(pointerId);
-      return;
-    }
-    const strokeId = newId();
-    gesture.current = { kind: 'stroke', pointerId, layerId: project.activeLayerId, strokeId, points: [point] };
-    setPreview(previewStroke([point], strokeId));
+    setSelectedShapeId(null);
+    gesture.current = beginDrawing(pointerId, project.activeLayerId, point);
     event.currentTarget.setPointerCapture?.(pointerId);
   };
 
@@ -273,6 +297,21 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     if (!gesture.current || gesture.current.pointerId !== (event.pointerId ?? 1)) return;
     const point = pointerPoint(event);
     if (!point) return;
+    if (gesture.current.kind === 'pending') {
+      const current = gesture.current;
+      const lastPending = current.points.at(-1);
+      if (!lastPending || lastPending.x !== point.x || lastPending.y !== point.y) {
+        current.points = [...current.points, point];
+      }
+      if (Math.hypot(event.clientX - current.clientX, event.clientY - current.clientY) < DRAW_MOVEMENT_THRESHOLD_PX) return;
+      clearTimeout(current.timer);
+      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start);
+      if (gesture.current.kind === 'stroke') {
+        gesture.current.points = current.points;
+        setPreview(previewStroke(current.points, gesture.current.strokeId));
+      }
+      setSelectedShapeId(null);
+    }
     if (gesture.current.kind === 'fill') return;
     if (gesture.current.kind === 'shape') {
       const updated = { ...gesture.current.shape, to: point };
@@ -307,43 +346,56 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     const current = gesture.current;
     if (!current || current.pointerId !== (event.pointerId ?? 1)) return;
     const end = pointerPoint(event);
+    if (current.kind === 'pending') {
+      clearTimeout(current.timer);
+      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start);
+      if (gesture.current.kind === 'stroke') gesture.current.points = current.points;
+    }
+    const committed = gesture.current!;
     gesture.current = null;
     setPreview(null);
     setPreviewShape(null);
     if (event.currentTarget.hasPointerCapture?.(current.pointerId)) {
       event.currentTarget.releasePointerCapture(current.pointerId);
     }
-    if (current.kind === 'fill') {
-      if (end) onAction({ type: 'addFill', layerId: current.layerId,
-        fill: { id: newId(), point: current.point, color } });
-    } else if (current.kind === 'shape') {
-      const shape = end ? { ...current.shape, to: end } : current.shape;
+    if (committed.kind === 'fill') {
+      if (end) onAction({ type: 'addFill', layerId: committed.layerId,
+        fill: { id: newId(), point: committed.point, color } });
+    } else if (committed.kind === 'shape') {
+      const shape = end ? { ...committed.shape, to: end } : committed.shape;
       const distance = Math.hypot(
         (shape.to.x - shape.from.x) * project.width,
         (shape.to.y - shape.from.y) * project.height,
       );
       if (distance >= 2) {
-        onAction({ type: 'addShape', layerId: current.layerId, shape });
+        onAction({ type: 'addShape', layerId: committed.layerId, shape });
         setSelectedShapeId(shape.id);
       }
-    } else if (current.kind === 'edit') {
-      const shape = end
-        ? current.handle === 'move'
-          ? moveShape(current.original, { x: end.x - current.start.x, y: end.y - current.start.y })
-          : resizeShape(current.original, current.handle, end)
-        : current.current;
-      onAction({ type: 'updateShape', layerId: current.layerId, shapeId: current.shapeId,
-        from: shape.from, to: shape.to });
-    } else {
-      const last = current.points.at(-1);
+    } else if (committed.kind === 'edit') {
+      const shape = end && end.x === committed.start.x && end.y === committed.start.y
+        ? committed.original : end
+        ? committed.handle === 'move'
+          ? moveShape(committed.original, { x: end.x - committed.start.x, y: end.y - committed.start.y })
+          : resizeShape(committed.original, committed.handle, end)
+        : committed.current;
+      if (shape.from.x !== committed.original.from.x || shape.from.y !== committed.original.from.y ||
+        shape.to.x !== committed.original.to.x || shape.to.y !== committed.original.to.y) {
+        onAction({ type: 'updateShape', layerId: committed.layerId, shapeId: committed.shapeId,
+          from: shape.from, to: shape.to });
+      }
+    } else if (committed.kind === 'stroke') {
+      const last = committed.points.at(-1);
       const points = end && (!last || last.x !== end.x || last.y !== end.y)
-        ? [...current.points, end] : current.points;
-      onAction({ type: 'addStroke', layerId: current.layerId,
-        stroke: previewStroke(points, current.strokeId) });
+        ? [...committed.points, end] : committed.points;
+      onAction({ type: 'addStroke', layerId: committed.layerId,
+        stroke: previewStroke(points, committed.strokeId) });
     }
   };
 
-  const cancelStroke = () => { gesture.current = null; setPreview(null); setPreviewShape(null); };
+  const cancelStroke = () => {
+    if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
+    gesture.current = null; setPreview(null); setPreviewShape(null);
+  };
   const cancelPointer = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType === 'touch') {
       touchPointers.current.delete(event.pointerId ?? 1);
@@ -367,10 +419,9 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       <div className="studio-main">
         <div className="studio-toolbar" aria-label="Инструменты рисования">
           <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />
-          <button type="button" className={tool === 'erase' ? 'tool-active' : ''} onClick={() => setTool('erase')}>Ластик</button>
-          <button type="button" className={tool === 'fill' ? 'tool-active' : ''} onClick={() => setTool('fill')}>Заливка ведром</button>
-          <button type="button" className={tool === 'shape' ? 'tool-active' : ''} onClick={() => setTool('shape')}>Фигуры</button>
-          <button type="button" className={tool === 'select' ? 'tool-active' : ''} onClick={() => setTool('select')}>Переместить фигуру</button>
+          <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title="Ластик" aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
+          <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title="Заливка ведром" aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
+          <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title="Фигуры" aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
           {tool === 'shape' && <>
             <label className="studio-control">Фигура
               <select aria-label="Тип фигуры" value={shapeKind} onChange={(event) => setShapeKind(event.target.value as ShapeKind)}>
@@ -397,10 +448,10 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
           <label className="studio-control">Толщина <input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /> <span>{size} px</span></label>
           <label className="studio-control">Прозрачность <input type="range" aria-label="Прозрачность кисти" min="0" max="100" value={brushOpacity} onChange={(event) => setBrushOpacity(Number(event.target.value))} /> <span>{brushOpacity}% кисти</span></label>
           <span className="toolbar-divider" aria-hidden="true" />
-          <button type="button" onClick={onUndo} disabled={!history.past.length}>Отменить</button>
-          <button type="button" onClick={onRedo} disabled={!history.future.length}>Повторить</button>
-          <button type="button" className="clear-trigger" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={contentCount === 0}>Очистить</button>
-          <button type="button" className="fullscreen-toggle" aria-pressed={immersive} onClick={toggleFullscreen}>{immersive ? 'Выйти из полного экрана' : 'Полный экран'}</button>
+          <button type="button" aria-label="Отменить" title="Отменить" onClick={onUndo} disabled={!history.past.length}><ToolIcon name="undo" /></button>
+          <button type="button" aria-label="Повторить" title="Повторить" onClick={onRedo} disabled={!history.future.length}><ToolIcon name="redo" /></button>
+          <button type="button" className="clear-trigger" aria-label="Очистить" title="Очистить" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={contentCount === 0}><ToolIcon name="trash" /></button>
+          <button type="button" className="fullscreen-toggle" aria-label={immersive ? 'Выйти из полного экрана' : 'Полный экран'} title={immersive ? 'Выйти из полного экрана' : 'Полный экран'} aria-pressed={immersive} onClick={toggleFullscreen}><ToolIcon name={immersive ? 'minimize' : 'maximize'} /></button>
         </div>
         <div className="artboard-stage" ref={stageRef}>
           <canvas
@@ -422,11 +473,12 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         <div className="canvas-footer">
           <span>Штрихов: {pointCount}</span>
           <span>Фигур и заливок: {contentCount - pointCount}</span>
+          <span className="interaction-hint">Удерживайте фигуру 0,5 с, чтобы переместить</span>
           <div className="zoom-controls">
-            <button type="button" aria-label="Уменьшить" onClick={() => setView((current) => zoomView(current, current.zoom - 0.25))}>−</button>
+            <button type="button" aria-label="Уменьшить" title="Уменьшить" onClick={() => setView((current) => zoomView(current, current.zoom - 0.25))}><ToolIcon name="minus" /></button>
             <span aria-live="polite">{Math.round(view.zoom * 100)}%</span>
-            <button type="button" aria-label="Увеличить" onClick={() => setView((current) => zoomView(current, current.zoom + 0.25))}>+</button>
-            <button type="button" onClick={() => setView(INITIAL_VIEW)}>Сброс масштаба</button>
+            <button type="button" aria-label="Увеличить" title="Увеличить" onClick={() => setView((current) => zoomView(current, current.zoom + 0.25))}><ToolIcon name="plus" /></button>
+            <button type="button" aria-label="Сброс масштаба" title="Сброс масштаба" onClick={() => setView(INITIAL_VIEW)}><ToolIcon name="reset" /></button>
           </div>
         </div>
       </div>

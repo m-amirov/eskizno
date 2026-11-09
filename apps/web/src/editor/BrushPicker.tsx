@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import type { BrushId } from './model';
 import { BRUSH_PRESETS } from './brushes';
+import { ToolIcon } from './ToolIcon';
 
 interface BrushPickerProps {
   value: BrushId;
@@ -60,10 +61,12 @@ export function BrushPicker({ value, onChange, active = true }: BrushPickerProps
       className={active ? 'brush-picker-trigger tool-active' : 'brush-picker-trigger'}
       type="button"
       aria-label={`Кисти, выбран ${selected.label}`}
+      aria-pressed={active}
+      title={`Кисти: ${selected.label}`}
       aria-expanded={open}
       aria-controls={open ? id : undefined}
       onClick={toggle}
-    ><span aria-hidden="true" className="brush-trigger-icon">✎</span>{selected.label}<span aria-hidden="true" className="brush-trigger-caret">▾</span></button>
+    ><ToolIcon name="brush" /><span className="brush-picker-chevron"><ToolIcon name="chevron" /></span></button>
     {open && createPortal(<div
       id={id}
       role="dialog"
