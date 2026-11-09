@@ -59,7 +59,16 @@
         <div class="artboard-stage">
           <div class="artboard-frame"><canvas id="drawing" aria-label="Рисунок. Используйте стилус, мышь или палец" tabindex="0"></canvas></div>
         </div>
-        <div class="status-bar"><span id="tool-status">Кисть · 3 px</span><span class="status-hint">B — кисть · E — ластик · Ctrl+Z — отменить</span><button class="text-button export-button" id="export" type="button">Скачать PNG <span aria-hidden="true">↗</span></button></div>
+        <div class="status-bar">
+          <span id="tool-status">Кисть · 3 px</span>
+          <span class="status-hint">B — кисть · E — ластик · Ctrl+Z — отменить</span>
+          <div class="zoom-controls" role="group" aria-label="Масштаб холста">
+            <button id="zoom-out" class="zoom-button" type="button" aria-label="Уменьшить холст" title="Уменьшить масштаб">−</button>
+            <button id="zoom-reset" class="zoom-value" type="button" aria-label="Сбросить масштаб холста" title="Вернуть масштаб 100%">100%</button>
+            <button id="zoom-in" class="zoom-button" type="button" aria-label="Увеличить холст" title="Увеличить масштаб">+</button>
+          </div>
+          <button class="text-button export-button" id="export" type="button">Скачать PNG <span aria-hidden="true">↗</span></button>
+        </div>
       </main>
 
       <aside class="lesson-panel" id="lesson-panel" aria-label="Урок рисования">
