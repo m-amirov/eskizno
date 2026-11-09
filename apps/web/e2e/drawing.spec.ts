@@ -43,6 +43,64 @@ test('мышь: штрих, масштаб, отмена и повтор, сло
   expect(errors).toEqual([]);
 });
 
+test('на телефоне кисть и ластик сохраняют собственную толщину после переключения', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const thickness = page.getByRole('slider', { name: 'Толщина линии' });
+  await thickness.press('Home');
+  for (let index = 0; index < 17; index += 1) await thickness.press('ArrowRight');
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  await page.getByRole('button', { name: 'Ластик' }).click();
+  const eraserThickness = page.getByRole('slider', { name: 'Толщина ластика' });
+  await expect(eraserThickness).toHaveValue('8');
+  await eraserThickness.press('End');
+  for (let index = 0; index < 17; index += 1) await eraserThickness.press('ArrowLeft');
+
+  const rect = await canvas.boundingBox();
+  expect(rect).not.toBeNull();
+  if (!rect) return;
+  await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Кисти, выбран Карандаш' }).click();
+  await page.getByRole('button', { name: 'Выбрать Карандаш' }).click();
+  await expect(thickness).toHaveValue('18');
+  await page.mouse.click(rect.x + rect.width / 3, rect.y + rect.height / 3);
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  await page.getByRole('button', { name: 'Ластик' }).click();
+  await expect(eraserThickness).toHaveValue('31');
+});
+
+test('второе касание отменяет недорисованный штрих и включает масштабирование двумя пальцами', async ({ page }) => {
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const rect = await canvas.boundingBox();
+  expect(rect).not.toBeNull();
+  if (!rect) return;
+
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  const touch = await page.context().newCDPSession(page);
+  const first = (x: number) => ({ x, y: centerY, id: 1 });
+  const second = (x: number) => ({ x, y: centerY, id: 2 });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [first(centerX - 50)] });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [first(centerX - 40)] });
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart', touchPoints: [first(centerX - 40), second(centerX + 50)],
+  });
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchMove', touchPoints: [first(centerX - 80), second(centerX + 90)],
+  });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [first(centerX - 80)] });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+  await expect(page.getByText('Штрихов: 0')).toBeVisible();
+  await expect(page.locator('.zoom-controls span')).not.toHaveText('100%');
+});
+
 test('на узком экране холст остаётся видимым, а слои свёрнуты', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');

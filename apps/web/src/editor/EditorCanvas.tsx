@@ -11,18 +11,29 @@ import { ToolIcon } from './ToolIcon';
 import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
 import { fitCanvasWidth } from './canvasFit';
+import { normalizeToolSettings } from './brushes';
 
 type Tool = 'ink' | 'erase' | 'fill' | 'shape';
-type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; strokeId: string; points: Point[] };
+type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; stroke: Stroke };
 type FillGesture = { kind: 'fill'; pointerId: number; layerId: string; point: Point };
 type ShapeGesture = { kind: 'shape'; pointerId: number; layerId: string; shape: Shape };
 type EditGesture = { kind: 'edit'; pointerId: number; layerId: string; shapeId: string;
   original: Shape; start: Point; current: Shape; handle: ShapeHandle | 'move' };
 type PendingGesture = { kind: 'pending'; pointerId: number; layerId: string; shape: Shape;
-  start: Point; points: Point[]; clientX: number; clientY: number; timer: ReturnType<typeof setTimeout> };
+  start: Point; points: Point[]; strokeSnapshot: Stroke;
+  clientX: number; clientY: number; timer: ReturnType<typeof setTimeout> };
 type Gesture = StrokeGesture | FillGesture | ShapeGesture | EditGesture | PendingGesture;
 const SHAPE_HOLD_MS = 500;
 const DRAW_MOVEMENT_THRESHOLD_PX = 8;
+
+function appendDistinctPoints(existing: readonly Point[], incoming: readonly Point[]): Point[] {
+  const result = [...existing];
+  for (const point of incoming) {
+    const last = result.at(-1);
+    if (!last || last.x !== point.x || last.y !== point.y) result.push(point);
+  }
+  return result;
+}
 
 interface EditorCanvasProps {
   history: ProjectHistory;
@@ -46,6 +57,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const gestureProject = useRef(project);
   const touchPointers = useRef(new Map<number, Point>());
   const pinchPrevious = useRef<[Point, Point] | null>(null);
+  const penPointer = useRef<number | null>(null);
   const paintCache = useRef(new WeakMap<PaintLayer, HTMLCanvasElement | OffscreenCanvas>());
   const shapePrefixCache = useRef(new WeakMap<PaintLayer, { shapeId: string; surface: HTMLCanvasElement | OffscreenCanvas }>());
   const [preview, setPreview] = useState<Stroke | null>(null);
@@ -57,7 +69,8 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const [layersExpanded, setLayersExpanded] = useState(false);
   const [color, setColor] = useState(project.palette[0]);
   const [recentColors, setRecentColors] = useState<string[]>([]);
-  const [size, setSize] = useState(8);
+  const [brushSize, setBrushSize] = useState(8);
+  const [eraserSize, setEraserSize] = useState(8);
   const [brushOpacity, setBrushOpacity] = useState(100);
   const [shapeKind, setShapeKind] = useState<ShapeKind>('rectangle');
   const [shapeStyle, setShapeStyle] = useState<ShapeStyle>('both');
@@ -68,6 +81,13 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const layersBodyId = useId();
   const confirmClearButtonRef = useRef<HTMLButtonElement>(null);
   const immersive = nativeFullscreen || focusMode;
+  const settings = normalizeToolSettings({ brushSize, eraserSize, opacity: brushOpacity / 100 });
+  const size = tool === 'erase' ? settings.eraserSize : settings.brushSize;
+  const changeSize = (next: number) => {
+    const normalized = normalizeToolSettings({ brushSize: next, eraserSize: next, opacity: settings.opacity });
+    if (tool === 'erase') setEraserSize(normalized.eraserSize);
+    else setBrushSize(normalized.brushSize);
+  };
   const active = project.layers.find((layer) => layer.id === project.activeLayerId);
   const canDraw = active?.kind === 'paint' && active.visible && !active.locked;
   const pointCount = project.layers.reduce((sum, layer) => sum + (layer.kind === 'paint' ? layer.strokes.length : 0), 0);
@@ -111,6 +131,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       setPreviewShape(null);
       touchPointers.current.clear();
       pinchPrevious.current = null;
+      penPointer.current = null;
     }
   }, [project]);
   useEffect(() => {
@@ -119,6 +140,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
+      penPointer.current = null;
     }
   }, [tool]);
 
@@ -203,12 +225,28 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     return normalized ? screenToArtboard(normalized, view) : null;
   };
 
+  const pointerSamples = (event: PointerEvent<HTMLCanvasElement>): Point[] => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const native = event.nativeEvent;
+    const coalesced = native.getCoalescedEvents?.() ?? [];
+    const samples = [...coalesced.slice(-256), event];
+    const points: Point[] = [];
+    for (const sample of samples) {
+      if ('pointerId' in sample && sample.pointerId !== (event.pointerId ?? 1)) continue;
+      const normalized = clientToNormalized(sample.clientX, sample.clientY, rect);
+      const point = normalized ? screenToArtboard(normalized, view) : null;
+      if (point) points.push(point);
+    }
+    return appendDistinctPoints([], points);
+  };
+
   const previewStroke = (points: Point[], strokeId: string): Stroke => ({
     id: strokeId, kind: tool === 'erase' ? 'erase' : 'ink', brushId, color, width: size,
-    opacity: tool === 'erase' ? 1 : brushOpacity / 100, points,
+    opacity: tool === 'erase' ? 1 : settings.opacity, points,
   });
 
-  const beginDrawing = (pointerId: number, layerId: string, point: Point): Exclude<Gesture, EditGesture | PendingGesture> => {
+  const beginDrawing = (pointerId: number, layerId: string, point: Point,
+    strokeSnapshot?: Stroke): Exclude<Gesture, EditGesture | PendingGesture> => {
     if (tool === 'fill') return { kind: 'fill', pointerId, layerId, point };
     if (tool === 'shape') {
       const shape: Shape = {
@@ -219,14 +257,21 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       setPreviewShape(shape);
       return { kind: 'shape', pointerId, layerId, shape };
     }
-    const strokeId = newId();
-    setPreview(previewStroke([point], strokeId));
-    return { kind: 'stroke', pointerId, layerId, strokeId, points: [point] };
+    const stroke = strokeSnapshot ?? previewStroke([point], newId());
+    setPreview(stroke);
+    return { kind: 'stroke', pointerId, layerId, stroke };
   };
 
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
     if (event.button !== 0) return;
     const pointerId = event.pointerId ?? 1;
+    if (event.pointerType === 'touch' && penPointer.current !== null) return;
+    if (event.pointerType === 'pen') {
+      if (penPointer.current !== null && penPointer.current !== pointerId) return;
+      if (gesture.current && touchPointers.current.has(gesture.current.pointerId)) cancelStroke();
+      touchPointers.current.clear();
+      pinchPrevious.current = null;
+    }
     if (event.pointerType === 'touch') {
       const rect = event.currentTarget.getBoundingClientRect();
       const normalized = clientToNormalized(event.clientX, event.clientY, rect);
@@ -242,6 +287,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     if (!canDraw || gesture.current) return;
     const point = pointerPoint(event);
     if (!point) return;
+    if (event.pointerType === 'pen') penPointer.current = pointerId;
     gestureProject.current = project;
     if (active?.kind === 'paint') {
       const shapes = getShapes(active);
@@ -268,7 +314,8 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
           setPreviewShape(target);
         }, SHAPE_HOLD_MS);
         gesture.current = { kind: 'pending', pointerId, layerId: active.id, shape: target,
-          start: point, points: [point], clientX: event.clientX, clientY: event.clientY, timer };
+          start: point, points: [point], strokeSnapshot: previewStroke([point], newId()),
+          clientX: event.clientX, clientY: event.clientY, timer };
         event.currentTarget.setPointerCapture?.(pointerId);
         return;
       }
@@ -279,6 +326,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   };
 
   const moveStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' && penPointer.current !== null) return;
     if (event.pointerType === 'touch' && touchPointers.current.has(event.pointerId ?? 1)) {
       const rect = event.currentTarget.getBoundingClientRect();
       const normalized = clientToNormalized(event.clientX, event.clientY, rect);
@@ -299,16 +347,15 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     if (!point) return;
     if (gesture.current.kind === 'pending') {
       const current = gesture.current;
-      const lastPending = current.points.at(-1);
-      if (!lastPending || lastPending.x !== point.x || lastPending.y !== point.y) {
-        current.points = [...current.points, point];
-      }
+      current.points = appendDistinctPoints(current.points, pointerSamples(event));
       if (Math.hypot(event.clientX - current.clientX, event.clientY - current.clientY) < DRAW_MOVEMENT_THRESHOLD_PX) return;
       clearTimeout(current.timer);
-      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start);
+      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start, current.strokeSnapshot);
       if (gesture.current.kind === 'stroke') {
-        gesture.current.points = current.points;
-        setPreview(previewStroke(current.points, gesture.current.strokeId));
+        gesture.current.stroke = { ...gesture.current.stroke, points: current.points };
+        setPreview(gesture.current.stroke);
+        setSelectedShapeId(null);
+        return; // The current coalesced packet was already added to pending points.
       }
       setSelectedShapeId(null);
     }
@@ -328,14 +375,15 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
       setPreviewShape(updated);
       return;
     }
-    const points = gesture.current.points;
-    const last = points.at(-1);
-    if (last && last.x === point.x && last.y === point.y) return;
-    gesture.current.points = [...points, point];
-    setPreview(previewStroke(gesture.current.points, gesture.current.strokeId));
+    const points = appendDistinctPoints(gesture.current.stroke.points, pointerSamples(event));
+    if (points.length === gesture.current.stroke.points.length) return;
+    gesture.current.stroke = { ...gesture.current.stroke, points };
+    setPreview(gesture.current.stroke);
   };
 
   const finishStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' && penPointer.current !== null) return;
+    if (event.pointerType === 'pen' && penPointer.current === (event.pointerId ?? 1)) penPointer.current = null;
     if (event.pointerType === 'touch') {
       touchPointers.current.delete(event.pointerId ?? 1);
       if (pinchPrevious.current) {
@@ -348,8 +396,10 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
     const end = pointerPoint(event);
     if (current.kind === 'pending') {
       clearTimeout(current.timer);
-      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start);
-      if (gesture.current.kind === 'stroke') gesture.current.points = current.points;
+      gesture.current = beginDrawing(current.pointerId, current.layerId, current.start, current.strokeSnapshot);
+      if (gesture.current.kind === 'stroke') {
+        gesture.current.stroke = { ...gesture.current.stroke, points: current.points };
+      }
     }
     const committed = gesture.current!;
     gesture.current = null;
@@ -384,24 +434,31 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
           from: shape.from, to: shape.to });
       }
     } else if (committed.kind === 'stroke') {
-      const last = committed.points.at(-1);
-      const points = end && (!last || last.x !== end.x || last.y !== end.y)
-        ? [...committed.points, end] : committed.points;
+      const points = appendDistinctPoints(committed.stroke.points, pointerSamples(event));
       onAction({ type: 'addStroke', layerId: committed.layerId,
-        stroke: previewStroke(points, committed.strokeId) });
+        stroke: { ...committed.stroke, points } });
     }
   };
 
   const cancelStroke = () => {
     if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
     gesture.current = null; setPreview(null); setPreviewShape(null);
+    penPointer.current = null;
   };
   const cancelPointer = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (event.pointerType === 'touch' && penPointer.current !== null) return;
+    if (event.pointerType === 'pen' && penPointer.current === (event.pointerId ?? 1)) penPointer.current = null;
     if (event.pointerType === 'touch') {
       touchPointers.current.delete(event.pointerId ?? 1);
       pinchPrevious.current = null;
     }
     if (gesture.current?.pointerId === (event.pointerId ?? 1)) cancelStroke();
+  };
+  const lostPointerCapture = (event: PointerEvent<HTMLCanvasElement>) => {
+    const pointerId = event.pointerId ?? 1;
+    if (gesture.current?.pointerId === pointerId) cancelStroke();
+    if (penPointer.current === pointerId) penPointer.current = null;
+    if (touchPointers.current.delete(pointerId)) pinchPrevious.current = null;
   };
 
   const addLayer = () => {
@@ -448,8 +505,8 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
             </label>
           </div>}
           <div className="toolbar-brush-settings">
-            <label className="studio-control"><span className="toolbar-control-name">Толщина</span><input type="range" aria-label="Толщина линии" min="1" max="48" value={size} onChange={(event) => setSize(Number(event.target.value))} /><span className="toolbar-control-value">{size} px</span></label>
-            <label className="studio-control"><span className="toolbar-control-name">Прозрачность</span><input type="range" aria-label="Прозрачность кисти" min="0" max="100" value={brushOpacity} onChange={(event) => setBrushOpacity(Number(event.target.value))} /><span className="toolbar-control-value">{brushOpacity}<span>%</span><span className="toolbar-value-detail"> кисти</span></span></label>
+            <label className="studio-control"><span className="toolbar-control-name">{tool === 'erase' ? 'Ластик' : 'Толщина'}</span><input type="range" aria-label={tool === 'erase' ? 'Толщина ластика' : 'Толщина линии'} min="1" max="48" value={size} onChange={(event) => changeSize(Number(event.target.value))} /><span className="toolbar-control-value">{size} px</span></label>
+            <label className="studio-control"><span className="toolbar-control-name">Прозрачность</span><input type="range" aria-label="Прозрачность кисти" min="0" max="100" value={brushOpacity} onChange={(event) => setBrushOpacity(Math.round(normalizeToolSettings({ ...settings, opacity: Number(event.target.value) / 100 }).opacity * 100))} /><span className="toolbar-control-value">{brushOpacity}<span>%</span><span className="toolbar-value-detail"> кисти</span></span></label>
           </div>
           <div className="toolbar-actions">
             <button type="button" aria-label="Отменить" title="Отменить" onClick={onUndo} disabled={!history.past.length}><ToolIcon name="undo" /></button>
@@ -472,6 +529,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
             onPointerMove={moveStroke}
             onPointerUp={finishStroke}
             onPointerCancel={cancelPointer}
+            onLostPointerCapture={lostPointerCapture}
           />
         </div>
         {focusMode && <p className="fullscreen-fallback-note" role="status">Полный экран недоступен. Включён режим без элементов сайта.</p>}
