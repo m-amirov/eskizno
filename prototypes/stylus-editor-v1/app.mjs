@@ -1,12 +1,15 @@
 import {
-  createDocument, createHistory, clientToNormalized, addStroke, eraseAt,
+  createDocument, createHistory, clientToNormalized, addStroke,
   undo, redo, changeStep, changeMode, changeAudience, restoreDocument,
   screenToArtboard, zoomView, pinchView,
 } from './core.mjs';
+import { renderInk } from './ink.mjs';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('drawing');
 const context = canvas.getContext('2d');
+const inkCanvas = document.createElement('canvas');
+const inkContext = inkCanvas.getContext('2d');
 const frame = document.querySelector('.artboard-frame');
 const stage = document.querySelector('.artboard-stage');
 
@@ -35,6 +38,7 @@ try { doc = restoreDocument(localStorage.getItem(STORAGE_KEY)) || doc; } catch {
 let history = createHistory(doc.strokes);
 let tool = 'brush';
 let brush = { color: '#252a2c', width: 3 };
+let eraser = { width: 24 };
 let draft = null;
 let pointerId = null;
 const activePointers = new Map();
@@ -98,26 +102,6 @@ function drawGuides(ctx, width, height, mode, step) {
   ctx.restore();
 }
 
-function drawStroke(ctx, stroke, width, height) {
-  if (!stroke.points?.length) return;
-  ctx.save();
-  ctx.strokeStyle = stroke.color;
-  ctx.fillStyle = stroke.color;
-  ctx.lineWidth = stroke.width;
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  const points = stroke.points;
-  const first = points[0];
-  if (points.length === 1) {
-    ctx.beginPath(); ctx.arc(first.x * width, first.y * height, stroke.width / 2, 0, Math.PI * 2); ctx.fill();
-  } else {
-    ctx.beginPath(); ctx.moveTo(first.x * width, first.y * height);
-    for (let i=1;i<points.length;i++) ctx.lineTo(points[i].x * width, points[i].y * height);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
 function paint(ctx, width, height, includeGuides = true) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, width, height);
@@ -126,13 +110,18 @@ function paint(ctx, width, height, includeGuides = true) {
   ctx.scale(view.zoom, view.zoom);
   ctx.translate(-width / 2, -height / 2);
   if (includeGuides) drawGuides(ctx, width, height, doc.mode, doc.step);
-  for (const stroke of history.present) if (stroke.step <= doc.step) drawStroke(ctx, stroke, width, height);
-  if (draft) drawStroke(ctx, draft, width, height);
   ctx.restore();
+  ctx.drawImage(inkCanvas, 0, 0, width, height);
 }
 
 function render() {
   const dpr = canvas.width / frameWidth;
+  if (inkCanvas.width !== canvas.width || inkCanvas.height !== canvas.height) {
+    inkCanvas.width = canvas.width;
+    inkCanvas.height = canvas.height;
+  }
+  inkContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+  renderInk(inkContext, frameWidth, frameHeight, history.present, view, doc.step, draft);
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, frameWidth, frameHeight);
   paint(context, frameWidth, frameHeight);
@@ -176,7 +165,12 @@ function pickTool(nextTool) {
     button.setAttribute('aria-pressed', String(active));
   }
   canvas.style.cursor = tool === 'eraser' ? 'cell' : 'crosshair';
-  $('tool-status').textContent = tool === 'brush' ? `Кисть · ${brush.width} px` : 'Ластик · удаляет штрих';
+  const width = tool === 'eraser' ? eraser.width : brush.width;
+  $('size').min = tool === 'eraser' ? '4' : '1';
+  $('size').max = tool === 'eraser' ? '50' : '16';
+  $('size').value = String(width);
+  $('size-value').textContent = String(width);
+  $('tool-status').textContent = `${tool === 'eraser' ? 'Ластик' : 'Кисть'} · ${width} px`;
 }
 
 function applyHistory(next) { history = next; syncDocument(); render(); }
@@ -207,13 +201,6 @@ function updatePinch(previousPoints, currentPoints) {
   render();
 }
 
-function erasePointer(event) {
-  const point = pointerPoint(event);
-  if (!point) return;
-  const next = eraseAt(history, point, 0.018 + brush.width / 900, doc.step);
-  if (next !== history) applyHistory(next);
-}
-
 function appendPoint(event) {
   const point = pointerPoint(event);
   if (!point || !draft) return;
@@ -237,8 +224,14 @@ canvas.addEventListener('pointerdown', (event) => {
   }
   if (pinching || pointerId !== null) return;
   pointerId = event.pointerId;
-  if (tool === 'eraser') { if (event.pointerType !== 'touch') erasePointer(event); return; }
-  draft = { id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()), step: doc.step, color: brush.color, width: brush.width, points: [] };
+  draft = {
+    id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+    kind: tool === 'eraser' ? 'erase' : 'ink',
+    step: doc.step,
+    color: tool === 'eraser' ? '#000000' : brush.color,
+    width: tool === 'eraser' ? eraser.width : brush.width,
+    points: [],
+  };
   appendPoint(event);
   render();
 });
@@ -254,7 +247,6 @@ canvas.addEventListener('pointermove', (event) => {
   }
   if (pinching) return;
   if (pointerId !== event.pointerId) return;
-  if (tool === 'eraser') { if (event.pointerType !== 'touch') erasePointer(event); return; }
   const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
   for (const sample of (events.length ? events : [event])) appendPoint(sample);
   render();
@@ -267,7 +259,6 @@ function finishPointer(event, cancelled = false) {
     return;
   }
   if (pointerId !== event.pointerId) return;
-  if (tool === 'eraser' && event.pointerType === 'touch' && !cancelled) erasePointer(event);
   if (draft && !cancelled) {
     appendPoint(event);
     applyHistory(addStroke(history, draft));
@@ -294,7 +285,11 @@ $('tool-brush').addEventListener('click', () => pickTool('brush'));
 $('tool-eraser').addEventListener('click', () => pickTool('eraser'));
 $('undo').addEventListener('click', () => applyHistory(undo(history)));
 $('redo').addEventListener('click', () => applyHistory(redo(history)));
-$('size').addEventListener('input', (event) => { brush.width = Number(event.target.value); $('size-value').textContent = String(brush.width); pickTool(tool); });
+$('size').addEventListener('input', (event) => {
+  if (tool === 'eraser') eraser.width = Number(event.target.value);
+  else brush.width = Number(event.target.value);
+  pickTool(tool);
+});
 document.querySelectorAll('.color-swatch').forEach((button) => button.addEventListener('click', () => {
   brush.color = button.dataset.color;
   document.querySelectorAll('.color-swatch').forEach((swatch) => { const active = swatch === button; swatch.classList.toggle('active',active); swatch.setAttribute('aria-pressed',String(active)); });
@@ -327,7 +322,11 @@ $('export').addEventListener('click', () => {
   output.width = 1200; output.height = 900;
   const ctx = output.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, output.width, output.height);
-  for (const stroke of history.present) if (stroke.step <= doc.step) drawStroke(ctx, stroke, output.width, output.height);
+  const transparentInk = document.createElement('canvas');
+  transparentInk.width = output.width;
+  transparentInk.height = output.height;
+  renderInk(transparentInk.getContext('2d'), output.width, output.height, history.present, { zoom: 1, panX: 0, panY: 0 }, doc.step);
+  ctx.drawImage(transparentInk, 0, 0);
   const link = document.createElement('a');
   link.download = 'eskizno-vetka-s-listyami.png';
   link.href = output.toDataURL('image/png');
