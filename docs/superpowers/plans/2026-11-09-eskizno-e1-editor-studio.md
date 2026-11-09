@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, React, Canvas 2D, Pointer Events; Vite для клиентского приложения, Vitest для логики, Playwright + Chromium для браузерных сценариев, IndexedDB для локальных проектов. Backend, облако, платежи, внешние сервисы и аналитика в E1 не входят.
 
-**Spec:** `docs/superpowers/specs/2026-11-09-eskizno-adult-learning-product-design.md`; прежние гарантии `docs/superpowers/specs/2026-11-08-eskizno-mvp-design.md` и `prototypes/stylus-editor-v1/README.md`.
+**Spec:** `docs/superpowers/specs/2026-11-09-eskizno-adult-learning-product-design.md` + утверждённое дополнение `docs/superpowers/specs/2026-11-09-eskizno-interactive-feedback-gamification-design.md`; прежние гарантии `docs/superpowers/specs/2026-11-08-eskizno-mvp-design.md` и `prototypes/stylus-editor-v1/README.md`.
 
 ## Global Constraints
 
@@ -19,6 +19,7 @@
 - Референс всегда отделён от собственного рисунка; ластик не удаляет другой слой, заблокированный слой или учебные направляющие.
 - Переходы, перезапуск, неудачное сохранение и сбои импорта не должны незаметно терять данные.
 - По умолчанию личные изображения не отправляются в сеть; без аккаунтов, трекеров, платежей и ИИ-оценки.
+- Гибридный путь утверждён: E1 только передаёт локальные события завершённых действий и хранит минимальный прогресс; оценка упражнений, испытания и достижения появляются в E2–E3. Никаких ИИ-вызовов в E1.
 - Сохранять спокойный стиль профессионального редактора с большим холстом и доступными действиями на телефоне.
 - Выполнять небольшими PR от актуального `main`, без публикации продукта и без изменения принятого прототипа v0.4.
 
@@ -29,6 +30,7 @@
 3. **Неподходящий/огромный файл:** импорт объяснимо отклоняется, действующий проект остаётся доступным; E1.6 тестирует ограничения и битый файл.
 4. **Заполненное/недоступное локальное хранилище:** интерфейс сообщает, что проект не сохранён, предлагает экспорт/повтор и не пишет ложное «Сохранено»; E1.5 тестирует отказ транзакции.
 5. **Восстановление старого урока v1:** импорт v1 не удаляет исходный ключ и сохраняет порядок штрихов, ластик и шаг; E1.5 проверяет миграцию и повторный запуск.
+6. **Отменённый штрих / undo после завершения:** система не излучает `strokeCommitted` для `pointercancel` и может строить актуальную оценку на текущем документе; E1.2/E1.4 проверяют событие и итоговое состояние.
 
 ---
 
@@ -43,11 +45,12 @@
 | `package.json`, `package-lock.json`, `index.html`, `vite.config.ts`, `tsconfig.json`, `playwright.config.ts` | Сборка, тесты и статическая оболочка |
 | `src/main.tsx`, `src/App.tsx`, `src/styles.css` | Запуск и навигация «Мои работы / Свободная студия» |
 | `src/editor/model.ts` | Версионированные типы проекта, слоёв и операций; чистые функции изменения состояния |
+| `src/editor/events.ts` | Минимальный поток семантических действий для будущих правил урока, без телеметрии pointermove |
 | `src/editor/history.ts` | Общая undo/redo история операций со слоями, кистью и референсом |
 | `src/editor/geometry.ts` | Точные преобразования экрана, холста, zoom/pan/pinch |
 | `src/editor/brushes.ts` | Идентификаторы кистей, контроль параметров, отдельный размер ластика |
 | `src/editor/render.ts` | Растеризация кистей, независимая поверхность слоя, композит и экспорт |
-| `src/editor/persistence.ts` | IndexedDB, атомарная запись, миграция старого документа v1 |
+| `src/editor/persistence.ts` | IndexedDB, атомарная запись, миграция старого документа v1, независимый локальный прогресс |
 | `src/editor/import-image.ts` | Валидация, декодирование и преобразование импортированного изображения |
 | `src/editor/EditorCanvas.tsx` | Pointer Events и отображение редактора, без хранения модели в canvas |
 | `src/editor/Toolbar.tsx`, `LayerPanel.tsx`, `PalettePanel.tsx` | Доступные клавиатурой и касанием органы управления |
@@ -56,7 +59,7 @@
 
 Модель `DrawingProject` (`schemaVersion: 2`): `id: string`, `title: string`, `width: number`, `height: number`, `layers: Layer[]` (снизу вверх), `activeLayerId: string`, `palette: string[]`, `createdAt/updatedAt: number`, опциональное `lesson: { id: string; audience: 'adult'|'child'; mode: 'trace'|'construct'|'free'; step: number }`. `Layer` — общие `id/name/visible/locked/opacity` и ровно один вариант содержимого: `kind: 'paint'`, `strokes: Stroke[]`; либо `kind: 'reference'`, `assetId: string`, `placement: 'overlay'|'side'`, `transform: { x,y,scale,rotation }`. Рисовать поверх можно только при `placement: 'overlay'`; `side` означает отдельную панель, не пиксели экспорта. `Stroke` — `id`, `kind: 'ink'|'erase'`, `brushId`, `color`, `width`, `opacity`, `points: { x,y }[]` в нормализованных 0..1, опциональный `step`. Ресурсы изображений — Blob в IndexedDB, а не data URL внутри JSON.
 
-Единый договор модулей: `createProject(options): DrawingProject`; `applyAction(project, action): DrawingProject`; `createProjectHistory(initial): ProjectHistory`; `commitAction(history, action): ProjectHistory`; `undoAction(history)/redoAction(history): ProjectHistory`; `renderProject(ctx, project, assets, options): void`; `saveProject(db, project, assets): Promise<void>`; `loadProject(db, id): Promise<SavedProject|null>`; `importReference(file): Promise<ImportedImage>`; `exportPng(project, assets, { includeReferences }): Promise<Blob>`. Действие рисования всегда адресует `layerId`; изменение locked-слоя отклоняется без изменения модели.
+Единый договор модулей: `createProject(options): DrawingProject`; `applyAction(project, action): DrawingProject`; `createProjectHistory(initial): ProjectHistory`; `commitAction(history, action): ProjectHistory`; `undoAction(history)/redoAction(history): ProjectHistory`; `createActionEvent(action, before, after): DrawingEvent|null` (только при действительном изменении проекта; `strokeCommitted` ровно раз на завершённый жест, без сырых `pointermove`); `renderProject(ctx, project, assets, options): void`; `saveProject(db, project, assets): Promise<void>`; `loadProject(db, id): Promise<SavedProject|null>`; `saveProgress(db, progress): Promise<void>`; `loadProgress(db): Promise<ProgressState>`; `importReference(file): Promise<ImportedImage>`; `exportPng(project, assets, { includeReferences }): Promise<Blob>`. Действие рисования всегда адресует `layerId`; изменение locked-слоя отклоняется без изменения модели. `ProgressState` на E1 хранит только `schemaVersion`, `lessonAttempts` и `earnedAchievementIds` (пустые по умолчанию); правила начисления и UI достижений в E1 отсутствуют.
 
 Для E1 определить проверяемые ограничения: холст по умолчанию **1200×900 px**, максимум **16 слоёв**, PNG/JPEG/WebP до **10 MiB**, декодированный размер до **4096 px по каждой стороне и 16 Мп суммарно**; ошибки отображать на русском. Начальные значения — продуктовые технические ограничения E1, подлежат пересмотру по результатам тестирования устройств. Хранить исходные пропорции изображения при трансформации.
 
@@ -74,9 +77,9 @@
 
 ## Task E1.2: Модель документа и undo/redo операций
 
-**Files:** Create `apps/web/src/editor/model.ts`, `history.ts`, `model.test.ts`, `history.test.ts`.
+**Files:** Create `apps/web/src/editor/model.ts`, `history.ts`, `events.ts`, `model.test.ts`, `history.test.ts`, `events.test.ts`.
 
-**Interfaces:** `createProject({title?,width?,height?,lesson?})`, `applyAction(project, action)`, `createProjectHistory(initial)`, `commitAction(history, action)`, `undoAction`, `redoAction`; `ProjectAction` union с `addStroke`, `addLayer`, `removeLayer`, `reorderLayer`, `renameLayer`, `setLayerVisibility`, `setLayerLock`, `setLayerOpacity`, `setActiveLayer`, `setReferenceTransform`, `setPalette`.
+**Interfaces:** `createProject({title?,width?,height?,lesson?})`, `applyAction(project, action)`, `createProjectHistory(initial)`, `commitAction(history, action)`, `undoAction`, `redoAction`, `createActionEvent(action,before,after)`; `ProjectAction` union с `addStroke`, `addLayer`, `removeLayer`, `reorderLayer`, `renameLayer`, `setLayerVisibility`, `setLayerLock`, `setLayerOpacity`, `setActiveLayer`, `setReferenceTransform`, `setPalette`.
 
 - [ ] **Step 1 — RED:** Тест `model.test.ts`: новый проект имеет валидный активный paint-слой; `addStroke` меняет только указанный слой; stroke по locked-слою не проходит; `removeLayer` не оставляет проект без paint-слоя; лимит 16 слоёв соблюдается.
 - [ ] **Step 2 — verify RED:** `npm run test:unit -- src/editor/model.test.ts`; до реализации FAIL.
@@ -84,7 +87,8 @@
 - [ ] **Step 4 — GREEN:** `npm run test:unit -- src/editor/model.test.ts`; PASS.
 - [ ] **Step 5 — RED:** Тест `history.test.ts`: undo/redo восстанавливает и stroke, и слой, и настройки; новый action после undo очищает redo; ограничение истории 80 снимков, как в v0.4.
 - [ ] **Step 6 — implementation + GREEN:** Реализовать `history.ts`; `npm run test:unit -- src/editor/history.test.ts` — PASS; `npm run typecheck` — PASS.
-- [ ] **Step 7 — commit:** `git add apps/web/src/editor && git commit -m "feat(eskizno): add layered document and reversible actions"`.
+- [ ] **Step 7 — RED + GREEN:** `events.test.ts`: `addStroke` формирует ровно один `strokeCommitted`, отклонённый action и `pointercancel` не создают событий, отмена меняет только доступное состояние; затем реализовать `events.ts`. `npm run test:unit -- src/editor/events.test.ts` — PASS.
+- [ ] **Step 8 — commit:** `git add apps/web/src/editor && git commit -m "feat(eskizno): add layered document and reversible actions"`.
 
 ## Task E1.3: Холст, независимый рендер слоёв и геометрия
 
@@ -117,7 +121,7 @@
 
 **Interfaces:** `openProjectDb(): Promise<IDBDatabase>`, `saveProject(db, project, assets): Promise<void>`, `loadProject(db, id): Promise<SavedProject|null>`, `listProjects(db): Promise<ProjectSummary[]>`, `deleteProject(db,id): Promise<void>`, `migrateLegacyV1(db, raw): Promise<string|null>`; stores `projects`, `assets` с versioned IndexedDB schema.
 
-- [ ] **Step 1 — RED:** `persistence.test.ts` с IndexedDB polyfill: save/load полностью восстанавливает layers/opacity/image Blob; транзакция ошибки не помечается успешной; `migrateLegacyV1` переносит документ из `eskizno:prototype:botanical-branch:v1` (не удаляет ключ), сохраняет `step`, `kind:'erase'`, порядок и не дублирует при повторном запуске; повреждённый JSON не разрушает галерею.
+- [ ] **Step 1 — RED:** `persistence.test.ts` с IndexedDB polyfill: save/load полностью восстанавливает layers/opacity/image Blob; `saveProgress/loadProgress` хранит локальное состояние прогресса отдельно от проекта, корректно восстанавливает пустое значение и не дублирует ID достижений; транзакция ошибки не помечается успешной; `migrateLegacyV1` переносит документ из `eskizno:prototype:botanical-branch:v1` (не удаляет ключ), сохраняет `step`, `kind:'erase'`, порядок и не дублирует при повторном запуске; повреждённый JSON не разрушает галерею.
 - [ ] **Step 2 — verify RED:** `npm run test:unit -- src/editor/persistence.test.ts`; FAIL.
 - [ ] **Step 3 — implementation:** Реализовать асинхронное сохранение в IndexedDB атомарной транзакцией, debounce после изменённых состояний, идемпотентную миграцию через валидатор v1, UI состояния «Сохранение… / Сохранено / Не удалось сохранить», список проектов, открытие и подтверждённое удаление. Перенос v1 возможен только при доступности исходного `localStorage` в том же origin; при смене домена автоматический перенос не обещать.
 - [ ] **Step 4 — GREEN:** `npm run test:unit -- src/editor/persistence.test.ts`; PASS.
@@ -164,7 +168,7 @@
 
 **Порядок PR:** E1.1 → E1.2 → E1.3 → E1.4 → E1.5 → E1.6 → E1.7, каждый от актуального `main` после проверки предыдущего. При необходимости объединить только соседние мелкие изменения, если тестовая граница не разрушается. Не объединять всю E1 в одну непроверяемую замену UI.
 
-**За пределами E1:** учебные сценарии/оценка (E2), библиотека 12 уроков (E3), маски/группы/режимы наложения, облачные проекты, совместимость редактируемых форматов Krita/Photoshop, биллинг, аккаунты. Подготовить отдельный методический план E2 после принятия технической E1.
+**За пределами E1:** алгоритмы оценки рисунка, контекстные подсказки, испытания и фактическое начисление достижений (E2–E3); библиотека 12 уроков (E3), маски/группы/режимы наложения, облачные проекты, совместимость редактируемых форматов Krita/Photoshop, биллинг, аккаунты. Подготовить отдельный методический план E2 после принятия технической E1.
 
 ## Handoff
 
