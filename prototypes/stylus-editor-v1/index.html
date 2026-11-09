@@ -6,12 +6,12 @@
   <meta name="theme-color" content="#f4f5f5" />
   <meta name="description" content="Эскизно — интерактивный редактор для обучения рисованию со стилусом. Прототип первого урока." />
   <title>Эскизно — Ветка с листьями</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=0.4" />
 </head>
 <body>
   <div class="application">
     <header class="header">
-      <a href="./index.html" class="brand" aria-label="Эскизно, начало">эскизно<span class="brand-dot">.</span></a>
+      <a href="./index.html" class="brand" aria-label="Эскизно, начало">эскизно<span class="brand-dot">.</span><span id="build-version" class="build-version">v0.4</span></a>
       <span class="header-separator" aria-hidden="true"></span>
       <div class="header-location"><span>Практика</span><span class="chevron" aria-hidden="true">/</span><strong>Ветка с листьями</strong></div>
       <div class="header-spacer"></div>
@@ -62,12 +62,17 @@
         <div class="status-bar">
           <span id="tool-status">Кисть · 3 px</span>
           <span class="status-hint">B — кисть · E — ластик · Ctrl+Z — отменить</span>
+          <div class="mobile-size-control">
+            <label for="mobile-size" title="Размер кисти или ластика">Размер</label>
+            <input id="mobile-size" type="range" min="1" max="16" step="1" value="3" aria-label="Размер инструмента" />
+            <output id="mobile-size-value" for="mobile-size">3</output>
+          </div>
           <div class="zoom-controls" role="group" aria-label="Масштаб холста">
             <button id="zoom-out" class="zoom-button" type="button" aria-label="Уменьшить холст" title="Уменьшить масштаб">−</button>
             <button id="zoom-reset" class="zoom-value" type="button" aria-label="Сбросить масштаб холста" title="Вернуть масштаб 100%">100%</button>
             <button id="zoom-in" class="zoom-button" type="button" aria-label="Увеличить холст" title="Увеличить масштаб">+</button>
           </div>
-          <button class="text-button export-button" id="export" type="button">Скачать PNG <span aria-hidden="true">↗</span></button>
+          <button class="text-button export-button" id="export" type="button"><span class="export-full">Скачать </span>PNG <span aria-hidden="true">↗</span></button>
         </div>
       </main>
 
@@ -96,6 +101,6 @@
       </aside>
     </div>
   </div>
-  <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./app.mjs?v=0.4"></script>
 </body>
 </html>
