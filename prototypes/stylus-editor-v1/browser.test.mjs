@@ -92,3 +92,35 @@ test('zoom changes artwork coordinates but never the canvas element dimensions',
     assert.equal(await page.locator('#zoom-reset').textContent(), '100%');
   } finally { await browser.close(); }
 });
+
+test('eraser paints a transparent path instead of deleting an entire ink stroke', async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 1100, height: 820 }, deviceScaleFactor: 1 });
+  try {
+    await page.goto(base);
+    await page.getByRole('button', { name: 'Сам', exact: true }).click();
+    const box = await page.locator('canvas').boundingBox();
+    const draw = async (x1, y1, x2, y2) => {
+      await page.mouse.move(box.x + box.width * x1, box.y + box.height * y1);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * x2, box.y + box.height * y2, { steps: 16 });
+      await page.mouse.up();
+    };
+    await draw(.2, .5, .8, .5);
+    await page.getByRole('button', { name: 'Ластик' }).click();
+    await draw(.5, .35, .5, .65);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1') ?? 'null')?.strokes.length === 2);
+    const state = await page.evaluate(() => {
+      const canvas = document.getElementById('drawing');
+      const ctx = canvas.getContext('2d');
+      const pixel = (x, y) => [...ctx.getImageData(Math.round(canvas.width * x), Math.round(canvas.height * y), 1, 1).data];
+      return { left: pixel(.3, .5), erased: pixel(.5, .5), right: pixel(.7, .5), strokes: JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1')).strokes };
+    });
+    assert.equal(state.strokes[1].kind, 'erase');
+    assert.ok(state.left[0] < 100 && state.right[0] < 100, 'left/right ink remains');
+    assert.ok(state.erased[0] > 240, 'only the crossed pixels turn white');
+    await page.getByRole('button', { name: 'Отменить' }).click();
+    const restored = await page.locator('canvas').evaluate((element) => element.getContext('2d').getImageData(Math.round(element.width / 2), Math.round(element.height / 2), 1, 1).data[0]);
+    assert.ok(restored < 100, 'undo restores crossed ink');
+  } finally { await browser.close(); }
+});
