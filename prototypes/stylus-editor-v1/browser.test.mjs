@@ -55,3 +55,40 @@ test('tablet and mobile keep the drawing canvas onscreen without horizontal scro
     }
   } finally { await browser.close(); }
 });
+
+test('tablet lesson controls fit in the bottom panel without nested scrolling', async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  try {
+    for (const viewport of [{ width: 768, height: 900 }, { width: 600, height: 840 }]) {
+      const page = await browser.newPage({ viewport });
+      await page.goto(base);
+      const panel = page.locator('.lesson-panel');
+      const metrics = await panel.evaluate((element) => ({ visible: element.clientHeight, content: element.scrollHeight }));
+      assert.ok(metrics.content <= metrics.visible + 2, `lesson panel scrolls at ${viewport.width}px: ${JSON.stringify(metrics)}`);
+      const panelRect = await panel.boundingBox();
+      const actionRect = await page.locator('.lesson-actions').boundingBox();
+      assert.ok(actionRect.y + actionRect.height <= panelRect.y + panelRect.height, `buttons clipped at ${viewport.width}px`);
+      await page.close();
+    }
+  } finally { await browser.close(); }
+});
+
+test('zoom changes artwork coordinates but never the canvas element dimensions', async () => {
+  const browser = await chromium.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] });
+  const page = await browser.newPage({ viewport: { width: 768, height: 900 } });
+  try {
+    await page.goto(base);
+    const before = await page.locator('canvas').boundingBox();
+    await page.getByRole('button', { name: 'Увеличить холст' }).click();
+    assert.equal(await page.locator('#zoom-reset').textContent(), '125%');
+    const after = await page.locator('canvas').boundingBox();
+    assert.deepEqual(after, before);
+    await page.mouse.click(before.x + before.width * .25, before.y + before.height * .75);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1') ?? 'null')?.strokes.length === 1);
+    const point = await page.evaluate(() => JSON.parse(localStorage.getItem('eskizno:prototype:botanical-branch:v1')).strokes[0].points[0]);
+    assert.ok(Math.abs(point.x - .3) < .025, `inverse zoom X=${point.x}`);
+    assert.ok(Math.abs(point.y - .7) < .025, `inverse zoom Y=${point.y}`);
+    await page.getByRole('button', { name: 'Сбросить масштаб холста' }).click();
+    assert.equal(await page.locator('#zoom-reset').textContent(), '100%');
+  } finally { await browser.close(); }
+});
