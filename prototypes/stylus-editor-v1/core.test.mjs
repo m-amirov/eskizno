@@ -14,6 +14,7 @@ import {
   changeAudience,
   restoreDocument,
 } from './core.mjs';
+import * as core from './core.mjs';
 
 const segment = {
   id: 'line-one',
@@ -65,4 +66,32 @@ test('rejects invalid or mismatched local documents', () => {
   assert.equal(restoreDocument(JSON.stringify({ ...createDocument(), lessonId: 'elsewhere' })), null);
   assert.deepEqual(restoreDocument(JSON.stringify({ ...createDocument(), strokes: [segment] })).strokes, [segment]);
   assert.equal(restoreDocument(JSON.stringify({ ...createDocument(), strokes: [{ ...segment, points: [{ x: 7, y: 0 }] }] })), null);
+});
+
+test('zoom keeps the artboard point beneath the pointer stationary', () => {
+  const next = core.zoomView({ zoom: 1, panX: 0, panY: 0 }, 2, { x: 0.25, y: 0.75 });
+  assert.deepEqual(next, { zoom: 2, panX: 0.25, panY: -0.25 });
+  assert.deepEqual(core.screenToArtboard({ x: 0.25, y: 0.75 }, next), { x: 0.25, y: 0.75 });
+  assert.deepEqual(core.screenToArtboard({ x: 0.5, y: 0.5 }, next), { x: 0.375, y: 0.625 });
+});
+
+test('canvas zoom and pan remain bounded to the artboard', () => {
+  const original = { zoom: 1, panX: 0, panY: 0 };
+  assert.deepEqual(core.zoomView(original, 0.2), original);
+  assert.deepEqual(core.zoomView(original, 20), { zoom: 4, panX: 0, panY: 0 });
+  assert.deepEqual(core.panView({ zoom: 2, panX: 0, panY: 0 }, 1, -1), { zoom: 2, panX: 0.5, panY: -0.5 });
+  assert.deepEqual(core.panView({ zoom: 2, panX: 0.25, panY: -0.25 }, -0.1, 0.1), { zoom: 2, panX: 0.15, panY: -0.15 });
+  assert.equal(core.screenToArtboard({ x: -0.2, y: 0.4 }, original), null);
+});
+
+test('two-finger movement scales about its midpoint and pans without moving the page', () => {
+  const initial = { zoom: 2, panX: 0, panY: 0 };
+  const scaled = core.pinchView(initial, [{ x: .3, y: .5 }, { x: .7, y: .5 }], [{ x: .2, y: .5 }, { x: .8, y: .5 }]);
+  assert.ok(Math.abs(scaled.zoom - 3) < 1e-10);
+  assert.ok(Math.abs(scaled.panX) < 1e-10);
+  assert.ok(Math.abs(scaled.panY) < 1e-10);
+  const moved = core.pinchView(initial, [{ x: .3, y: .5 }, { x: .7, y: .5 }], [{ x: .4, y: .6 }, { x: .8, y: .6 }]);
+  assert.ok(Math.abs(moved.zoom - 2) < 1e-10);
+  assert.ok(Math.abs(moved.panX - .1) < 1e-10);
+  assert.ok(Math.abs(moved.panY - .1) < 1e-10);
 });
