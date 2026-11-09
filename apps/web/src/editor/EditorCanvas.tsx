@@ -38,6 +38,7 @@ function appendDistinctPoints(existing: readonly Point[], incoming: readonly Poi
 
 interface EditorCanvasProps {
   history: ProjectHistory;
+  referenceImages?: ReadonlyMap<string, CanvasImageSource>;
   onAction: (action: ProjectAction) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -52,7 +53,7 @@ function newId(): string {
     : `stroke-${Date.now()}-${Math.random()}`;
 }
 
-export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, storageMessage, onRetry }: EditorCanvasProps) {
+export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRedo, saveStatus, storageMessage, onRetry }: EditorCanvasProps) {
   const project = history.present;
   const layoutRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -62,7 +63,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
     exportCanvas.height = project.height;
     const context = exportCanvas.getContext('2d');
     if (!context) return;
-    renderProject(context, project, new Map(), {
+    renderProject(context, project, referenceImages ?? new Map(), {
       zoom: 1, panX: 0, panY: 0, includeReferences: true,
     });
     context.globalCompositeOperation = 'destination-over';
@@ -129,7 +130,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    renderProject(context, project, new Map(), {
+    renderProject(context, project, referenceImages ?? new Map(), {
       ...view,
       includeReferences: true,
       paintCache: paintCache.current,
@@ -141,7 +142,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
       ...(selectedShape && active?.kind === 'paint'
         ? { selection: { layerId: active.id, shapeId: selectedShape.id } } : {}),
     });
-  }, [project, preview, previewShape, view, selectedShapeId, tool]);
+  }, [project, referenceImages, preview, previewShape, view, selectedShapeId, tool]);
 
   // Undo, layer deletion, lock toggles and tool switches invalidate an in-progress gesture.
   useEffect(() => {
@@ -185,7 +186,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
   }, []);
 
   useEffect(() => {
-    const syncFullscreen = () => setNativeFullscreen(document.fullscreenElement === layoutRef.current);
+    const syncFullscreen = () => setNativeFullscreen(document.fullscreenElement === fullscreenTarget());
     const handleEscape = (event: KeyboardEvent) => {
       // An open tool panel owns the first Escape; the second exits focus mode.
       if (event.key === 'Escape' && !document.querySelector(
@@ -199,6 +200,20 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
       document.removeEventListener('keydown', handleEscape);
     };
   }, []);
+
+  // The side reference and the overlay controls must remain inside immersive mode.
+  const fullscreenTarget = (): HTMLElement | null => {
+    const layout = layoutRef.current;
+    const workspace = layout?.closest<HTMLElement>('.workspace-page');
+    return workspace?.querySelector('.reference-panel') ? workspace : layout;
+  };
+
+  useEffect(() => {
+    const workspace = layoutRef.current?.closest<HTMLElement>('.workspace-page');
+    if (!focusMode || !workspace?.querySelector('.reference-panel')) return;
+    workspace.classList.add('reference-focus-mode');
+    return () => workspace.classList.remove('reference-focus-mode');
+  }, [focusMode, project.layers]);
 
   useEffect(() => {
     if (!focusMode) return;
@@ -230,7 +245,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo, saveStatus, st
       return;
     }
     if (focusMode) { setFocusMode(false); return; }
-    const layout = layoutRef.current;
+    const layout = fullscreenTarget();
     if (!layout?.requestFullscreen) { setFocusMode(true); return; }
     try {
       await layout.requestFullscreen();

@@ -136,12 +136,14 @@
 
 **Interfaces:** `importReference(file: File): Promise<{ blob: Blob; width: number; height: number; mime: string }>`; `addReferenceLayer(project, assetId, transform): DrawingProject`; три события начала `newBlank()`, `newWithTracing(file)`, `newWithSideReference(file)`; `assets` не сериализуются в localStorage.
 
-- [ ] **Step 1 — RED:** `import-image.test.ts`: valid PNG/JPEG/WebP, reject MIME без декодирования, размер >10 MiB, изображения >4096 px по стороне или >16 Мп, пустой/испорченный файл; ошибка не меняет текущий проект.
-- [ ] **Step 2 — verify RED:** `npm run test:unit -- src/editor/import-image.test.ts`; FAIL.
-- [ ] **Step 3 — implementation:** Распознать по декодированию, проверить размеры и корректно освобождать objectURL/ImageBitmap. Режим обводки создаёт заблокированный reference-слой и активный paint-слой; режим по образцу размещает отдельную панель, не влияющую на масштаб холста.
-- [ ] **Step 4 — GREEN:** `npm run test:unit -- src/editor/import-image.test.ts`; PASS.
+- [x] **Step 1 — RED:** `import-image.test.ts`: valid PNG/JPEG/WebP, reject MIME без декодирования, размер >10 MiB, изображения >4096 px по стороне или >16 Мп, пустой/испорченный файл; ошибка не меняет текущий проект.
+- [x] **Step 2 — verify RED:** `npm run test:unit -- src/editor/import-image.test.ts`; зафиксировано отсутствие модуля до реализации.
+- [x] **Step 3 — implementation:** Проверка декодирования и размеров; освобождение ресурса; две позиции reference-слоя с отдельным paint-слоем; три входа из студии; Blob в IndexedDB.
+- [x] **Step 4 — GREEN:** `import-image.test.ts` — 8/8, включая `Image.decode` fallback; добавлены тесты режимов референса, параметров, восстановления, полноэкранного режима, поведения диалога и гонок сохранения при создании нового холста/импорте. Полный прогон: 186/186 unit (22 файла), TypeScript и build PASS; 13/13 проверок исходного прототипа PASS.
 - [ ] **Step 5 — browser gate:** `e2e/studio.spec.ts`: открыть каждый из 3 входов; импортировать файл; изменить opacity/позицию/масштаб/поворот референса без потери пропорций; нарисовать поверх; стереть участок; скрыть референс по «Показать без эскиза»; reload восстанавливает референс; импорт битого файла сохраняет старый проект.
-- [ ] **Step 6 — verify + commit:** `npm run test:e2e -- e2e/studio.spec.ts` и `npm run typecheck` — PASS; `git add apps/web && git commit -m "feat(eskizno): add imported sketch and side reference"`.
+
+  **Блокер E1.6:** два Playwright-сценария обнаружены, но bundled Chromium отсутствует, а системный `/usr/bin/chromium` аварийно завершает старт с `socket() failed: Operation not permitted (1)`; поэтому ни один сценарий не прошёл browser gate. Работа остаётся в отдельной ветке и Draft PR, без merge.
+- [ ] **Step 6 — verify + commit:** unit, typecheck, build и prototype PASS; E2E проверка заблокирована окружением и остаётся обязательной до merge. Коммиты реализации и регрессионных исправлений подготовлены отдельно от `main`.
 
 ## Task E1.7: Палитра, слои, экспорт и UX-приёмка
 
