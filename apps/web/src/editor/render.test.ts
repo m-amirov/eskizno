@@ -1,7 +1,7 @@
 import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 
-import { applyAction, createProject, type BrushId, type DrawingProject, type Stroke } from './model';
+import { applyAction, createProject, type BrushId, type DrawingProject, type Stroke, type Shape } from './model';
 import { renderProject } from './render';
 import { sampleStrokePoints } from './brushes';
 
@@ -42,6 +42,132 @@ const pixel = (ctx: ReturnType<typeof render>, x = 32, y = 32) =>
   Array.from(ctx.getImageData(x, y, 1, 1).data);
 
 const brushNames = ['pencil', 'liner', 'marker', 'soft', 'watercolor', 'charcoal', 'dry', 'airbrush', 'calligraphy', 'pastel'] as BrushId[];
+
+describe('пиксельная заливка и геометрия', () => {
+  const shape: Shape = {
+    id: 'rectangle', kind: 'rectangle', from: { x: .25, y: .25 }, to: { x: .75, y: .75 },
+    color: '#000000', width: 3, style: 'outline', opacity: 1,
+  };
+  it('ведро заливает только связную область внутри замкнутого контура', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const outlined = applyAction(base, { type: 'addShape', layerId: base.activeLayerId, shape });
+    const filled = applyAction(outlined, { type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: 'bucket', point: { x: .5, y: .5 }, color: '#FF6600' } });
+    expect(pixel(render(filled), 32, 32)).toEqual([255, 102, 0, 255]);
+    expect(pixel(render(filled), 5, 5)).toEqual([0, 0, 0, 0]);
+    expect(pixel(render(filled), 16, 32)[3]).toBeGreaterThan(0);
+    expect(pixel(render(outlined), 32, 32)).toEqual([0, 0, 0, 0]);
+  });
+  it('заливка фона происходит на активном слое, не затрагивая нижний', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const lower = paint(base, base.activeLayerId, makeStroke('base', '#0000FF', 'ink', 60));
+    const withTop = applyAction(lower, { type: 'addLayer', layer: {
+      id: 'top', kind: 'paint', name: 'верх', strokes: [], visible: true, locked: false, opacity: 1,
+    } });
+    const filled = applyAction(withTop, { type: 'addFill', layerId: 'top',
+      fill: { id: 'f', point: { x: .5, y: .5 }, color: '#00FF00' } });
+    expect(pixel(render(filled), 32, 32)).toEqual([0, 255, 0, 255]);
+    const hidden = applyAction(filled, { type: 'setLayerVisibility', layerId: 'top', visible: false });
+    expect(pixel(render(hidden), 32, 32)).toEqual([0, 0, 255, 255]);
+  });
+  it('сохраняет порядок заливка → штрих → ластик и заливка фигуры', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const filled = applyAction(base, { type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: 'fill', point: { x: .5, y: .5 }, color: '#FF0000' } });
+    const drawn = paint(filled, base.activeLayerId, makeStroke('blue', '#0000FF'));
+    expect(pixel(render(drawn), 32, 32)).toEqual([0, 0, 255, 255]);
+    const erased = paint(drawn, base.activeLayerId, makeStroke('erase', '#000000', 'erase', 16));
+    expect(pixel(render(erased), 32, 32)).toEqual([0, 0, 0, 0]);
+    const shaped = applyAction(erased, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { ...shape, id: 'new', style: 'fill', color: '#00FF00' } });
+    expect(pixel(render(shaped), 32, 32)).toEqual([0, 255, 0, 255]);
+  });
+  it('меняет растровый результат после перемещения векторной фигуры', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const added = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { ...shape, style: 'fill', color: '#FF0000' } });
+    const moved = applyAction(added, { type: 'updateShape', layerId: base.activeLayerId,
+      shapeId: shape.id, from: { x: 0, y: 0 }, to: { x: .2, y: .2 } });
+    expect(pixel(render(added), 32, 32)).toEqual([255, 0, 0, 255]);
+    expect(pixel(render(moved), 32, 32)).toEqual([0, 0, 0, 0]);
+    expect(pixel(render(moved), 4, 4)).toEqual([255, 0, 0, 255]);
+  });
+  it('применяет записанную прозрачность к мазку', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const drawn = paint(base, base.activeLayerId, { ...makeStroke('half', '#FF0000'), opacity: .5 });
+    expect(pixel(render(drawn), 32, 32)[3]).toBeGreaterThanOrEqual(125);
+    expect(pixel(render(drawn), 32, 32)[3]).toBeLessThanOrEqual(130);
+  });
+  it('рисует маркеры выделения поверх других слоёв, даже если фигура на нижнем', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const lower = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { ...shape, style: 'fill', color: '#FF0000' } });
+    const second = applyAction(lower, { type: 'addLayer', layer: {
+      id: 'top', kind: 'paint', name: 'верх', strokes: [], visible: true, locked: false, opacity: 1,
+    } });
+    const upper = applyAction(second, { type: 'addFill', layerId: 'top',
+      fill: { id: 'blue', color: '#0000FF', point: { x: .5, y: .5 } } });
+    const canvas = createCanvas(64, 64);
+    renderProject(canvas.getContext('2d') as unknown as CanvasRenderingContext2D, upper, new Map(), {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+      createSurface: (w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement,
+      selection: { layerId: base.activeLayerId, shapeId: shape.id },
+    });
+    expect(pixel(canvas.getContext('2d'), 16, 16)).not.toEqual([0, 0, 255, 255]);
+  });
+  it('кэширует заливки до перемещаемой фигуры между кадрами preview', () => {
+    const base = createProject({ width: 64, height: 64 });
+    let drawn = base;
+    for (let i = 0; i < 5; i += 1) drawn = applyAction(drawn, {
+      type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: `fill-${i}`, color: i % 2 ? '#AABBCC' : '#DDEEFF', point: { x: .5, y: .5 } },
+    });
+    drawn = applyAction(drawn, { type: 'addShape', layerId: base.activeLayerId, shape: { ...shape, style: 'fill' } });
+    const layer = drawn.layers[0];
+    if (layer.kind !== 'paint') throw new Error('paint layer required');
+    const canvas = createCanvas(64, 64);
+    let readCount = 0;
+    const options = {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+      createSurface: (w: number, h: number) => {
+        const c = createCanvas(w, h);
+        const ctx = c.getContext('2d');
+        const original = ctx.getImageData.bind(ctx);
+        ctx.getImageData = ((...args: Parameters<typeof original>) => {
+          readCount += 1;
+          return original(...args);
+        }) as typeof ctx.getImageData;
+        return c as unknown as HTMLCanvasElement;
+      },
+      paintCache: new WeakMap(),
+      shapePrefixCache: new WeakMap(),
+    };
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    renderProject(ctx, drawn, new Map(), options);
+    readCount = 0;
+    renderProject(ctx, drawn, new Map(), { ...options, previewShape: {
+      layerId: layer.id, shape: { ...shape, from: { x: 0, y: 0 } },
+      existing: true,
+    } });
+    const afterFirstPreview = readCount;
+    renderProject(ctx, drawn, new Map(), { ...options, previewShape: {
+      layerId: layer.id, shape: { ...shape, from: { x: .1, y: .1 } },
+      existing: true,
+    } });
+    expect(afterFirstPreview).toBeGreaterThan(0);
+    expect(readCount).toBe(afterFirstPreview);
+  });
+  it('не добавляет удалённую фигуру обратно в preview существующего объекта', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const canvas = createCanvas(64, 64);
+    renderProject(canvas.getContext('2d') as unknown as CanvasRenderingContext2D, base, new Map(), {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+      createSurface: (w, h) => createCanvas(w, h) as unknown as HTMLCanvasElement,
+      previewShape: { layerId: base.activeLayerId, shape: { ...shape, style: 'fill' }, existing: true },
+    });
+    expect(pixel(canvas.getContext('2d'), 32, 32)).toEqual([0, 0, 0, 0]);
+  });
+});
 
 describe('видимые особенности кистей', () => {
   it('не разрывает тонкий аэрограф и каллиграфию после лимита отпечатков', () => {

@@ -1,4 +1,4 @@
-import type { DrawingProject } from './model';
+import { getPaintOperations, type DrawingProject } from './model';
 import { parseHexColor } from './color';
 
 /** MRU is local editor state; stroke colors are rebuilt from the current visible drawing after Undo/Delete/Clear. */
@@ -14,8 +14,14 @@ export function recentAndCanvasColors(recent: readonly string[], project: Drawin
   recent.forEach(add);
   for (const layer of [...project.layers].reverse()) {
     if (layer.kind !== 'paint' || !layer.visible) continue;
-    for (const stroke of [...layer.strokes].reverse()) {
-      if (stroke.kind === 'ink') add(stroke.color);
+    const strokes = new Map(layer.strokes.map((stroke) => [stroke.id, stroke]));
+    for (const operation of [...getPaintOperations(layer)].reverse()) {
+      if (operation.type === 'stroke') {
+        const stroke = strokes.get(operation.strokeId);
+        if (stroke?.kind === 'ink') add(stroke.color);
+      }
+      if (operation.type === 'shape') add(operation.shape.color);
+      if (operation.type === 'fill') add(operation.fill.color);
     }
   }
   if (!result.length) add(current);

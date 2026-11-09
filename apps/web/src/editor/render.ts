@@ -1,5 +1,6 @@
-import type { DrawingProject, PaintLayer, ReferenceLayer, Stroke } from './model';
+import { getPaintOperations, type BucketFill, type DrawingProject, type PaintLayer, type ReferenceLayer, type Shape, type Stroke } from './model';
 import { paintBrushStroke } from './brushes';
+import { shapeBounds, shapeCorners } from './shapeGeometry';
 
 type Surface = HTMLCanvasElement | OffscreenCanvas;
 type SurfaceContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -15,6 +16,11 @@ export interface RenderOptions {
   paintCache?: WeakMap<PaintLayer, Surface>;
   /** An uncommitted stroke is composited onto a disposable copy of its layer. */
   preview?: { layerId: string; stroke: Stroke };
+  /** Draft geometry is replayed in place of the original shape, or at end for new shapes. */
+  previewShape?: { layerId: string; shape: Shape; existing?: boolean };
+  /** Reuses the unmodified prefix before the actively edited shape. */
+  shapePrefixCache?: WeakMap<PaintLayer, { shapeId: string; surface: Surface }>;
+  selection?: { layerId: string; shapeId: string };
 }
 
 function defaultSurface(width: number, height: number): Surface {
@@ -62,6 +68,143 @@ function paintStroke(
     context.moveTo(first.x * width, first.y * height);
     for (const point of rest) context.lineTo(point.x * width, point.y * height);
     context.stroke();
+  }
+  context.restore();
+}
+
+function paintShape(context: SurfaceContext, shape: Shape, width: number, height: number): void {
+  const bounds = shapeBounds(shape);
+  const left = bounds.left * width;
+  const right = bounds.right * width;
+  const top = bounds.top * height;
+  const bottom = bounds.bottom * height;
+  context.save();
+  context.globalAlpha = shape.opacity;
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.lineWidth = shape.width;
+  context.fillStyle = shape.color;
+  context.strokeStyle = shape.color;
+  context.beginPath();
+  switch (shape.kind) {
+    case 'rectangle':
+      context.rect(left, top, right - left, bottom - top);
+      break;
+    case 'ellipse':
+      context.ellipse((left + right) / 2, (top + bottom) / 2,
+        Math.max(.001, (right - left) / 2), Math.max(.001, (bottom - top) / 2),
+        0, 0, Math.PI * 2);
+      break;
+    case 'triangle':
+      context.moveTo((left + right) / 2, top);
+      context.lineTo(left, bottom);
+      context.lineTo(right, bottom);
+      context.closePath();
+      break;
+    case 'line':
+    case 'arrow': {
+      const ax = shape.from.x * width, ay = shape.from.y * height;
+      const bx = shape.to.x * width, by = shape.to.y * height;
+      context.moveTo(ax, ay);
+      context.lineTo(bx, by);
+      if (shape.kind === 'arrow' && Math.hypot(bx - ax, by - ay) > 2) {
+        const angle = Math.atan2(by - ay, bx - ax);
+        const length = Math.max(10, shape.width * 3);
+        context.moveTo(bx - length * Math.cos(angle - Math.PI / 6),
+          by - length * Math.sin(angle - Math.PI / 6));
+        context.lineTo(bx, by);
+        context.lineTo(bx - length * Math.cos(angle + Math.PI / 6),
+          by - length * Math.sin(angle + Math.PI / 6));
+      }
+      break;
+    }
+  }
+  if (shape.kind !== 'line' && shape.kind !== 'arrow' && shape.style !== 'outline') context.fill();
+  if (shape.style !== 'fill' || shape.kind === 'line' || shape.kind === 'arrow') context.stroke();
+  context.restore();
+}
+
+/** Exact RGBA flood fill on the current layer; queue and visited bounded by pixel count. */
+function paintBucketFill(context: SurfaceContext, fill: BucketFill, width: number, height: number): void {
+  const image = context.getImageData(0, 0, width, height);
+  const data = image.data;
+  const pixelCount = width * height;
+  const startX = Math.max(0, Math.min(width - 1, Math.floor(fill.point.x * width)));
+  const startY = Math.max(0, Math.min(height - 1, Math.floor(fill.point.y * height)));
+  const seed = startY * width + startX;
+  const offset = seed * 4;
+  const old = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+  const next = [
+    parseInt(fill.color.slice(1, 3), 16),
+    parseInt(fill.color.slice(3, 5), 16),
+    parseInt(fill.color.slice(5, 7), 16),
+    255,
+  ];
+  if (old.every((channel, index) => channel === next[index])) return;
+  const queue = new Int32Array(pixelCount);
+  const visited = new Uint8Array(pixelCount);
+  let head = 0, tail = 1;
+  queue[0] = seed;
+  visited[seed] = 1;
+  const enqueue = (index: number) => {
+    if (visited[index]) return;
+    visited[index] = 1;
+    const i = index * 4;
+    if (data[i] === old[0] && data[i + 1] === old[1]
+      && data[i + 2] === old[2] && data[i + 3] === old[3]) queue[tail++] = index;
+  };
+  while (head < tail) {
+    const index = queue[head++];
+    const i = index * 4;
+    data[i] = next[0];
+    data[i + 1] = next[1];
+    data[i + 2] = next[2];
+    data[i + 3] = next[3];
+    const x = index % width;
+    if (x > 0) enqueue(index - 1);
+    if (x < width - 1) enqueue(index + 1);
+    if (index >= width) enqueue(index - width);
+    if (index + width < pixelCount) enqueue(index + width);
+  }
+  context.putImageData(image, 0, 0);
+}
+
+function paintLayerContents(
+  context: SurfaceContext, layer: PaintLayer, width: number, height: number, start = 0, end?: number,
+): void {
+  const strokes = new Map(layer.strokes.map((stroke) => [stroke.id, stroke]));
+  const operations = getPaintOperations(layer);
+  for (let index = start; index < (end ?? operations.length); index += 1) {
+    const operation = operations[index];
+    if (operation.type === 'stroke') {
+      const stroke = strokes.get(operation.strokeId);
+      if (stroke) paintStroke(context, stroke, width, height);
+    } else if (operation.type === 'fill') {
+      paintBucketFill(context, operation.fill, width, height);
+    } else {
+      paintShape(context, operation.shape, width, height);
+    }
+  }
+}
+
+function paintSelection(
+  context: CanvasRenderingContext2D, shape: Shape, displayScale: number, width: number, height: number,
+): void {
+  const { left, right, top, bottom } = shapeBounds(shape);
+  context.save();
+  const safeZoom = Math.max(.001, displayScale);
+  context.strokeStyle = '#17734c';
+  context.lineWidth = 1.5 / safeZoom;
+  context.setLineDash([5 / safeZoom, 4 / safeZoom]);
+  context.strokeRect(left * width, top * height, (right - left) * width, (bottom - top) * height);
+  context.setLineDash([]);
+  const handles = shape.kind === 'line' || shape.kind === 'arrow'
+    ? [shape.from, shape.to] : Object.values(shapeCorners(shape));
+  for (const point of handles) {
+    const h = 8 / safeZoom;
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(point.x * width - h / 2, point.y * height - h / 2, h, h);
+    context.strokeRect(point.x * width - h / 2, point.y * height - h / 2, h, h);
   }
   context.restore();
 }
@@ -125,17 +268,39 @@ export function renderProject(
     if (!surface) {
       surface = createSurface(project.width, project.height);
       const paintContext = surfaceContext(surface);
-      for (const stroke of layer.strokes) {
-        paintStroke(paintContext, stroke, project.width, project.height);
-      }
+      paintLayerContents(paintContext, layer, project.width, project.height);
       options.paintCache?.set(layer, surface);
     }
 
-    if (options.preview?.layerId === layer.id) {
+    if (options.preview?.layerId === layer.id || options.previewShape?.layerId === layer.id) {
       const previewSurface = createSurface(project.width, project.height);
       const previewContext = surfaceContext(previewSurface);
-      previewContext.drawImage(surface, 0, 0);
-      paintStroke(previewContext, options.preview.stroke, project.width, project.height);
+      if (options.previewShape?.layerId === layer.id) {
+        const draft = options.previewShape;
+        const index = getPaintOperations(layer).findIndex((op) =>
+          op.type === 'shape' && op.shape.id === draft.shape.id);
+        if (index < 0) {
+          previewContext.drawImage(surface, 0, 0);
+          // A removed shape must never reappear via a stale edit gesture.
+          if (!draft.existing) paintShape(previewContext, draft.shape, project.width, project.height);
+        } else {
+          let prefix = options.shapePrefixCache?.get(layer);
+          if (!prefix || prefix.shapeId !== draft.shape.id) {
+            const prefixSurface = createSurface(project.width, project.height);
+            paintLayerContents(surfaceContext(prefixSurface), layer, project.width, project.height, 0, index);
+            prefix = { shapeId: draft.shape.id, surface: prefixSurface };
+            options.shapePrefixCache?.set(layer, prefix);
+          }
+          previewContext.drawImage(prefix.surface, 0, 0);
+          paintShape(previewContext, draft.shape, project.width, project.height);
+          paintLayerContents(previewContext, layer, project.width, project.height, index + 1);
+        }
+      } else {
+        previewContext.drawImage(surface, 0, 0);
+      }
+      if (options.preview?.layerId === layer.id) {
+        paintStroke(previewContext, options.preview.stroke, project.width, project.height);
+      }
       surface = previewSurface;
     }
 
@@ -143,6 +308,19 @@ export function renderProject(
     context.globalAlpha = layer.opacity;
     context.drawImage(surface, 0, 0, project.width, project.height);
     context.restore();
+  }
+  // The edit overlay belongs to the viewport and must sit above even upper layers.
+  const selectedLayer = project.layers.find((layer) => layer.id === options.selection?.layerId);
+  if (selectedLayer?.kind === 'paint' && selectedLayer.visible) {
+    const selected = getPaintOperations(selectedLayer).find((op) =>
+      op.type === 'shape' && op.shape.id === options.selection?.shapeId);
+    if (selected?.type === 'shape') {
+      const cssWidth = 'getBoundingClientRect' in canvas
+        ? (canvas as HTMLCanvasElement).getBoundingClientRect().width : 0;
+      const cssScale = cssWidth > 0 ? cssWidth / project.width : 1;
+      paintSelection(context, options.previewShape?.shape.id === selected.shape.id
+        ? options.previewShape.shape : selected.shape, options.zoom * cssScale, project.width, project.height);
+    }
   }
   context.restore();
 }

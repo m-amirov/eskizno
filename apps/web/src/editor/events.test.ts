@@ -15,6 +15,29 @@ const stroke: Stroke = {
 };
 
 describe('семантические события действий', () => {
+  it('фиксирует завершение заливки и изменения фигуры без потока координат', () => {
+    const before = createProject();
+    const layerId = before.activeLayerId;
+    const action: ProjectAction = { type: 'addFill', layerId,
+      fill: { id: 'f', point: { x: .4, y: .5 }, color: '#FF0000' } };
+    const filled = applyAction(before, action);
+    expect(createActionEvent(action, before, filled)).toMatchObject({
+      type: 'fillCommitted', layerId, fillId: 'f',
+    });
+    const addShape: ProjectAction = { type: 'addShape', layerId,
+      shape: { id: 's', kind: 'ellipse', from: { x: .1, y: .1 }, to: { x: .2, y: .2 },
+        color: '#445566', width: 2, opacity: 1, style: 'fill' } };
+    const shaped = applyAction(filled, addShape);
+    expect(createActionEvent(addShape, filled, shaped)).toMatchObject({
+      type: 'shapeCommitted', layerId, shapeId: 's', kind: 'ellipse',
+    });
+    const move: ProjectAction = { type: 'updateShape', layerId, shapeId: 's',
+      from: { x: .3, y: .3 }, to: { x: .4, y: .4 } };
+    const moved = applyAction(shaped, move);
+    expect(createActionEvent(move, shaped, moved)).toMatchObject({
+      type: 'shapeChanged', layerId, shapeId: 's',
+    });
+  });
   it('создаёт одно событие strokeCommitted только для завершённого штриха', () => {
     const before = createProject({});
     const action: ProjectAction = { type: 'addStroke', layerId: before.activeLayerId, stroke };

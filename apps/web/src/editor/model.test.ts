@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyAction, createProject, type Layer, type Stroke } from './model';
+import { applyAction, createProject, type Layer, type Stroke, type Shape } from './model';
 
 const paintLayer = (id: string): Layer => ({
   id,
@@ -35,6 +35,78 @@ const stroke: Stroke = {
 };
 
 describe('модель рисунка', () => {
+  it('хранит операции в порядке штрих → заливка → фигура → штрих, сохраняя прежнее поле strokes', () => {
+    const original = createProject();
+    const first = applyAction(original, { type: 'addStroke', layerId: original.activeLayerId, stroke });
+    const filled = applyAction(first, {
+      type: 'addFill', layerId: original.activeLayerId,
+      fill: { id: 'bucket-1', point: { x: .5, y: .5 }, color: '#FF0000' },
+    });
+    const shape: Shape = {
+      id: 'shape-1', kind: 'rectangle', from: { x: .2, y: .2 }, to: { x: .8, y: .8 },
+      color: '#0000FF', width: 3, style: 'both', opacity: 1,
+    };
+    const shaped = applyAction(filled, { type: 'addShape', layerId: original.activeLayerId, shape });
+    const result = applyAction(shaped, {
+      type: 'addStroke', layerId: original.activeLayerId, stroke: { ...stroke, id: 'ink-2' },
+    });
+    expect(result.layers[0]).toMatchObject({
+      strokes: [{ id: 'ink-1' }, { id: 'ink-2' }],
+      operations: [
+        { type: 'stroke', strokeId: 'ink-1' },
+        { type: 'fill', fill: { id: 'bucket-1' } },
+        { type: 'shape', shape: { id: 'shape-1' } },
+        { type: 'stroke', strokeId: 'ink-2' },
+      ],
+    });
+    expect(first.layers[0]).not.toHaveProperty('operations');
+    expect(original.layers[0]).not.toHaveProperty('operations');
+  });
+
+  it('перемещает фигуру без изменения порядка и старых версий документа', () => {
+    const base = createProject();
+    const shape: Shape = {
+      id: 'shape-1', kind: 'ellipse', from: { x: .2, y: .3 }, to: { x: .4, y: .5 },
+      color: '#123456', width: 4, style: 'outline', opacity: .4,
+    };
+    const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId, shape });
+    const moved = applyAction(withShape, {
+      type: 'updateShape', layerId: base.activeLayerId, shapeId: 'shape-1',
+      from: { x: .4, y: .4 }, to: { x: .6, y: .6 },
+    });
+    expect(moved.layers[0]).toMatchObject({ operations: [{ type: 'shape', shape: {
+      from: { x: .4, y: .4 }, to: { x: .6, y: .6 },
+    } }] });
+    expect(withShape.layers[0]).toMatchObject({ operations: [{ type: 'shape', shape: {
+      from: { x: .2, y: .3 },
+    } }] });
+    expect(applyAction(moved, { type: 'updateShape', layerId: base.activeLayerId, shapeId: 'shape-1', from: { x: .4, y: .4 }, to: { x: .6, y: .6 } })).toBe(moved);
+  });
+
+  it('отказывает заливке и фигурам на скрытом/заблокированном слое и отклоняет повреждённые данные', () => {
+    const base = createProject();
+    const id = base.activeLayerId;
+    const hidden = applyAction(base, { type: 'setLayerVisibility', layerId: id, visible: false });
+    const locked = applyAction(base, { type: 'setLayerLock', layerId: id, locked: true });
+    const fill = { id: 'f', point: { x: .2, y: .2 }, color: '#00FF00' };
+    const shape: Shape = { id: 's', kind: 'triangle', from: { x: .2, y: .2 }, to: { x: .7, y: .7 }, color: '#FFFFFF', width: 4, style: 'both', opacity: 1 };
+    expect(applyAction(hidden, { type: 'addFill', layerId: id, fill })).toBe(hidden);
+    expect(applyAction(locked, { type: 'addShape', layerId: id, shape })).toBe(locked);
+    expect(applyAction(base, { type: 'addFill', layerId: id, fill: { ...fill, point: { x: 2, y: .2 } } })).toBe(base);
+    expect(applyAction(base, { type: 'addShape', layerId: id, shape: { ...shape, width: 0 } })).toBe(base);
+    const filled = applyAction(base, { type: 'addFill', layerId: id, fill });
+    expect(applyAction(filled, { type: 'addFill', layerId: id, fill })).toBe(filled);
+    expect(applyAction(filled, { type: 'addShape', layerId: id, shape: { ...shape, id: 'f' } })).toBe(filled);
+  });
+
+  it('очистка удаляет заливки и фигуры даже без штрихов', () => {
+    const base = createProject();
+    const withFill = applyAction(base, { type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: 'f', point: { x: .5, y: .5 }, color: '#AABBCC' } });
+    const cleared = applyAction(withFill, { type: 'clearDrawing' });
+    expect(cleared.layers[0]).toMatchObject({ strokes: [], operations: [] });
+    expect(applyAction(cleared, { type: 'clearDrawing' })).toBe(cleared);
+  });
   it('принимает шесть дополнительных кистей, сохраняя старые типы без миграции', () => {
     const project = createProject({});
     const brushIds = ['watercolor', 'charcoal', 'dry', 'airbrush', 'calligraphy', 'pastel'] as const;
