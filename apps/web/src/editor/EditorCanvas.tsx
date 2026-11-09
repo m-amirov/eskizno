@@ -10,6 +10,7 @@ import { BrushPicker } from './BrushPicker';
 import { ToolIcon } from './ToolIcon';
 import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
+import { fitCanvasWidth } from './canvasFit';
 
 type Tool = 'ink' | 'erase' | 'fill' | 'shape';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; strokeId: string; points: Point[] };
@@ -163,15 +164,13 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   }, [focusMode]);
 
   useLayoutEffect(() => {
-    if (!immersive || !stageRef.current) return;
+    if (!stageRef.current) return;
     const stage = stageRef.current;
     const resize = () => {
       const style = getComputedStyle(stage);
       const availableWidth = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
       const availableHeight = stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      if (availableWidth > 0 && availableHeight > 0) {
-        setCanvasDisplayWidth(Math.min(availableWidth, availableHeight * project.width / project.height));
-      }
+      setCanvasDisplayWidth(fitCanvasWidth(availableWidth, availableHeight, project.width, project.height));
     };
     resize();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize);
@@ -462,7 +461,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
             height={project.height}
             role="img"
             aria-label="Холст для рисования"
-            style={immersive && canvasDisplayWidth ? { width: `${canvasDisplayWidth}px` } : undefined}
+            style={canvasDisplayWidth ? { width: `${canvasDisplayWidth}px` } : undefined}
             onPointerDown={startStroke}
             onPointerMove={moveStroke}
             onPointerUp={finishStroke}

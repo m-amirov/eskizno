@@ -16,6 +16,9 @@ button { font: inherit; cursor: pointer; }
 button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 
 .app-shell { min-height: 100vh; }
+.app-shell-studio { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.app-shell-studio .site-header { flex-shrink: 0; }
+.app-shell-studio .main-content { width: 100%; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .site-header { background: #ffffff; border-bottom: 1px solid #dde4db; }
 
@@ -85,6 +88,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .preview-circle { position: absolute; width: 13%; aspect-ratio: 1; border: 1.5px solid #c5a67d; border-radius: 50%; top: 27%; left: 30%; opacity: .8; }
 
 .workspace-page { padding: 52px 0 68px; }
+.app-shell-studio .workspace-page { display: flex; flex: 1; min-height: 0; flex-direction: column; padding: 18px 0; }
+.app-shell-studio .workspace-heading { flex-shrink: 0; margin-bottom: 16px; }
 .workspace-heading { margin-bottom: 25px; }
 .workspace-heading .section-kicker, .projects-page .section-kicker { margin-bottom: 9px; }
 .workspace-heading h2, .projects-page h2 { font-size: clamp(29px, 3vw, 42px); letter-spacing: -.045em; margin: 0 0 11px; font-weight: 620; }
@@ -95,8 +100,12 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .empty-workspace-symbol { font-size: 44px; color: #95ad9d; line-height: 1; }
 
 .studio-layout { display: grid; grid-template-columns: minmax(0, 1fr) 272px; align-items: start; gap: 18px; }
+.app-shell-studio .studio-layout { flex: 1; min-height: 0; align-items: stretch; overflow: hidden; }
 .studio-main, .layers-panel { min-width: 0; background: #fff; border: 1px solid #dde4db; border-radius: 11px; overflow: hidden; }
+.app-shell-studio .studio-main { display: flex; min-height: 0; height: 100%; flex-direction: column; }
+.app-shell-studio .layers-panel { overflow-y: auto; }
 .studio-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 13px 15px; border-bottom: 1px solid #e7ede6; }
+.app-shell-studio .studio-toolbar { flex-shrink: 0; }
 .studio-toolbar > button, .canvas-footer button, .layer-row button { border: 1px solid transparent; border-radius: 7px; background: transparent; color: #34493d; padding: 8px 11px; font-size: 13px; }
 .studio-toolbar > button[aria-label] { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; flex: 0 0 auto; }
 .studio-toolbar button:focus-visible, .brush-picker-trigger:focus-visible, .palette-trigger:focus-visible { outline: 2px solid #315c46; outline-offset: 2px; }
@@ -179,8 +188,11 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .interaction-hint { color: #748b7a; font-size: 11px; }
 .toolbar-divider { width: 1px; height: 23px; background: #e3e9e2; margin: 0 3px; }
 .artboard-stage { display: grid; place-items: center; min-height: 420px; padding: clamp(14px, 3vw, 36px); background-color: #f0f2ee; background-image: radial-gradient(#d7ded6 .8px, transparent .8px); background-size: 18px 18px; }
+.app-shell-studio .artboard-stage { flex: 1; min-height: 0; overflow: hidden; }
 .drawing-canvas { display: block; width: 100%; max-width: 1024px; height: auto; aspect-ratio: 4 / 3; background: #fffdfa; box-shadow: 0 10px 28px rgba(37, 56, 44, .13); cursor: crosshair; touch-action: none; }
+.app-shell-studio .drawing-canvas { max-width: 100%; max-height: 100%; }
 .canvas-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 9px 16px; color: #68796c; font-size: 12px; border-top: 1px solid #e7ede6; }
+.app-shell-studio .canvas-footer { flex-shrink: 0; }
 .zoom-controls { display: flex; align-items: center; gap: 4px; }
 .zoom-controls button[aria-label] { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
 .zoom-controls span { min-width: 45px; text-align: center; font-variant-numeric: tabular-nums; color: #344e3e; }
@@ -244,12 +256,15 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .intro-copy h2 { max-width: 640px; }
   .intro-preview-paper { min-height: 330px; }
   .studio-layout { grid-template-columns: 1fr; }
+  .app-shell-studio .studio-layout { grid-template-rows: minmax(0, 1fr) auto; }
+  .app-shell-studio .layers-panel { max-height: 32dvh; }
   .layers-panel { padding: 18px; }
   .layers-toggle { display: block; width: 100%; text-align: left; padding: 9px 7px; background: transparent; border: 0; color: #315c46; font-weight: 650; }
   .layers-body:not(.open) { display: none; }
   .layers-body h3 { display: none; }
   .layers-body .layers-hint:first-of-type { margin-top: 12px; }
   .artboard-stage { min-height: 300px; }
+  .app-shell-studio .artboard-stage { min-height: 0; }
   .studio-layout:is(:fullscreen, .focus-mode) { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
   .studio-layout:is(:fullscreen, .focus-mode) .layers-panel { padding: 7px 12px; }
   .studio-layout:is(:fullscreen, .focus-mode) .layers-body.open { max-height: 24dvh; overflow-y: auto; }
@@ -267,6 +282,18 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .studio-toolbar { padding: 10px; }
   .studio-control { padding: 2px; }
   .artboard-stage { min-height: 220px; padding: 12px; }
+  .app-shell-studio .artboard-stage { min-height: 0; }
+}
+
+/* Preserve access to tools when the viewport is too short (landscape or browser zoom). */
+@media (max-height: 700px) {
+  .app-shell-studio { height: auto; min-height: 100dvh; overflow: visible; }
+  .app-shell-studio .main-content,
+  .app-shell-studio .workspace-page,
+  .app-shell-studio .studio-layout { flex: none; }
+  .app-shell-studio .studio-layout { overflow: visible; }
+  .app-shell-studio .studio-main { height: auto; }
+  .app-shell-studio .artboard-stage { flex: none; min-height: 320px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

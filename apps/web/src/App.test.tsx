@@ -67,6 +67,37 @@ describe('Эскизно — оболочка приложения', () => {
     expect(canvas.height).toBe(768);
   });
 
+  it('в обычной студии вписывает холст в высоту рабочей области, не меняя его пиксельный размер', () => {
+    const originalWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+    const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    const originalGetComputedStyle = window.getComputedStyle;
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+      configurable: true,
+      get() { return this.classList.contains('artboard-stage') ? 800 : 0; },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() { return this.classList.contains('artboard-stage') ? 600 : 0; },
+    });
+    window.getComputedStyle = (element) => element.classList.contains('artboard-stage')
+      ? { paddingLeft: '12px', paddingRight: '12px', paddingTop: '12px', paddingBottom: '12px' } as CSSStyleDeclaration
+      : originalGetComputedStyle(element);
+    try {
+      render(<App />);
+      fireEvent.click(screen.getByRole('button', { name: 'Свободная студия' }));
+      const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+      expect(document.querySelector('.app-shell-studio')).toBeTruthy();
+      expect(canvas.style.width).toBe('768px');
+      expect([canvas.width, canvas.height]).toEqual([1024, 768]);
+    } finally {
+      if (originalWidth) Object.defineProperty(HTMLElement.prototype, 'clientWidth', originalWidth);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      if (originalHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', originalHeight);
+      else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+      window.getComputedStyle = originalGetComputedStyle;
+    }
+  });
+
   it('предупреждает перед очисткой рисунка, позволяет отменить и восстановить штрихи', () => {
     const originalRect = HTMLCanvasElement.prototype.getBoundingClientRect;
     HTMLCanvasElement.prototype.getBoundingClientRect = () => ({

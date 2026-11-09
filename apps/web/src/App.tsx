@@ -30,7 +30,7 @@ export function App() {
   }, [history]);
 
   return (
-    <div className="app-shell">
+    <div className={view === 'studio' ? 'app-shell app-shell-studio' : 'app-shell'}>
       <header className="site-header">
         <div className="header-inner">
           <div className="brand">

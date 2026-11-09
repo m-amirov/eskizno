@@ -57,6 +57,65 @@ test('на узком экране холст остаётся видимым, �
   await expect(page.getByRole('button', { name: 'Добавить слой' })).toBeVisible();
 });
 
+test('обычная студия вмещает холст и строку состояния без прокрутки страницы', async ({ page }) => {
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 820, height: 1180 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Свободная студия' }).click();
+    const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+    await expect(canvas).toBeVisible();
+    const layout = await page.evaluate(() => {
+      const artboard = document.querySelector<HTMLCanvasElement>('.drawing-canvas');
+      const footer = document.querySelector<HTMLElement>('.canvas-footer');
+      if (!artboard || !footer) return null;
+      const canvasRect = artboard.getBoundingClientRect();
+      return {
+        canvasWidth: canvasRect.width,
+        canvasHeight: canvasRect.height,
+        canvasBottom: canvasRect.bottom,
+        footerBottom: footer.getBoundingClientRect().bottom,
+        scrollHeight: document.documentElement.scrollHeight,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportHeight: window.innerHeight,
+        viewportWidth: window.innerWidth,
+        intrinsicSize: [artboard.width, artboard.height],
+      };
+    });
+    expect(layout, JSON.stringify(viewport)).not.toBeNull();
+    if (!layout) return;
+    expect(layout.canvasWidth, JSON.stringify(viewport)).toBeGreaterThan(100);
+    expect(layout.canvasWidth / layout.canvasHeight, JSON.stringify(viewport)).toBeCloseTo(4 / 3, 2);
+    expect(layout.intrinsicSize).toEqual([1024, 768]);
+    expect(layout.canvasBottom, JSON.stringify(viewport)).toBeLessThanOrEqual(layout.viewportHeight + 1);
+    expect(layout.footerBottom, JSON.stringify(viewport)).toBeLessThanOrEqual(layout.viewportHeight + 1);
+    expect(layout.scrollHeight, JSON.stringify(viewport)).toBeLessThanOrEqual(layout.viewportHeight + 1);
+    expect(layout.scrollWidth, JSON.stringify(viewport)).toBeLessThanOrEqual(layout.viewportWidth + 1);
+  }
+});
+
+test('при очень низком viewport инструменты и холст доступны через прокрутку, а не обрезаются', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 568 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const footer = page.locator('.canvas-footer');
+  expect((await canvas.boundingBox())?.width).toBeGreaterThan(150);
+  await footer.scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Сброс масштаба' })).toBeInViewport();
+  const dimensions = await page.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight,
+  }));
+  expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.viewportHeight);
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
+});
+
 test('колёсико масштабирует холст и не меняет размер пиксельного буфера', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Свободная студия' }).click();
