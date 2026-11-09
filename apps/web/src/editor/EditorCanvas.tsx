@@ -6,6 +6,7 @@ import { MAX_LAYERS, type DrawingProject, type PaintLayer, type Point, type Proj
 import { renderProject } from './render';
 import { PalettePopover } from './PalettePopover';
 import { LayerList } from './LayerList';
+import { recentAndCanvasColors } from './paletteHistory';
 
 type Tool = 'ink' | 'erase';
 type Gesture = { pointerId: number; layerId: string; points: Point[] };
@@ -46,6 +47,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const [tool, setTool] = useState<Tool>('ink');
   const [layersExpanded, setLayersExpanded] = useState(false);
   const [color, setColor] = useState(project.palette[0]);
+  const [recentColors, setRecentColors] = useState<string[]>([]);
   const [size, setSize] = useState(8);
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -56,6 +58,11 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
   const active = project.layers.find((layer) => layer.id === project.activeLayerId);
   const canDraw = active?.kind === 'paint' && active.visible && !active.locked;
   const pointCount = project.layers.reduce((sum, layer) => sum + (layer.kind === 'paint' ? layer.strokes.length : 0), 0);
+  const displayedRecentColors = recentAndCanvasColors(recentColors, project, color);
+  const selectColor = (next: string) => {
+    setColor(next);
+    setRecentColors((previous) => [next, ...previous.filter((entry) => entry.toLowerCase() !== next.toLowerCase())].slice(0, 8));
+  };
 
   useEffect(() => { if (confirmClear) confirmClearButtonRef.current?.focus(); }, [confirmClear]);
 
@@ -248,7 +255,7 @@ export function EditorCanvas({ history, onAction, onUndo, onRedo }: EditorCanvas
         <div className="studio-toolbar" aria-label="Инструменты рисования">
           <button type="button" className={tool === 'ink' ? 'tool-active' : ''} onClick={() => setTool('ink')}>Карандаш</button>
           <button type="button" className={tool === 'erase' ? 'tool-active' : ''} onClick={() => setTool('erase')}>Ластик</button>
-          <PalettePopover color={color} colors={project.palette} onSelect={setColor} onSaveColor={(next) => {
+          <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
             if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
               onAction({ type: 'setPalette', palette: [...project.palette, next] });
             }

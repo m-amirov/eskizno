@@ -9,12 +9,17 @@ afterEach(cleanup);
 function PaletteHarness({ initialColors = ['#254332', '#F0C886'] }: { initialColors?: string[] }) {
   const [color, setColor] = useState('#254332');
   const [colors, setColors] = useState(initialColors);
+  const [recent, setRecent] = useState<string[]>(['#B67C66', '#F0C886']);
   return (
     <>
       <PalettePopover
         color={color}
         colors={colors}
-        onSelect={setColor}
+        recentColors={recent}
+        onSelect={(next) => {
+          setColor(next);
+          setRecent((previous) => [next, ...previous.filter((entry) => entry.toLowerCase() !== next.toLowerCase())].slice(0, 8));
+        }}
         onSaveColor={(next) => setColors((current) => current.includes(next) ? current : [...current, next])}
       />
       <output aria-label="Выбранный цвет">{color}</output>
@@ -24,16 +29,20 @@ function PaletteHarness({ initialColors = ['#254332', '#F0C886'] }: { initialCol
 }
 
 describe('всплывающая палитра', () => {
-  it('показывает текущий цвет и выбирает цвет проекта, затем закрывается', () => {
+  it('сразу показывает HSV и выбирает недавний цвет без закрытия', () => {
     render(<PaletteHarness />);
     const toggle = screen.getByRole('button', { name: /Палитра/ });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
 
     fireEvent.click(toggle);
     expect(screen.getByRole('dialog', { name: 'Палитра цветов' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Выбрать #F0C886' }));
+    expect(screen.getByRole('slider', { name: 'Выбор насыщенности и яркости' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Свой цвет' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Недавний цвет #F0C886' }));
     expect(screen.getByRole('status', { name: 'Выбранный цвет' }).textContent).toBe('#F0C886');
-    expect(screen.queryByRole('dialog', { name: 'Палитра цветов' })).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Палитра цветов' })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: 'HEX' }) as HTMLInputElement).value).toBe('#f0c886');
+    expect(screen.getByRole('button', { name: 'Недавний цвет #F0C886' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('закрывается по Escape и по клику вне панели, не меняя цвет', () => {
@@ -51,14 +60,13 @@ describe('всплывающая палитра', () => {
   it('открывает редактор цвета, применяет HEX и позволяет сохранить без дубликата', () => {
     render(<PaletteHarness />);
     fireEvent.click(screen.getByRole('button', { name: /Палитра/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Свой цвет' }));
     expect(screen.getByRole('slider', { name: 'Выбор насыщенности и яркости' })).toBeTruthy();
     expect(screen.getByRole('slider', { name: 'Оттенок' })).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'HEX' }), { target: { value: '#aabbcc' } });
     expect(screen.getByRole('status', { name: 'Выбранный цвет' }).textContent).toBe('#254332');
     fireEvent.click(screen.getByRole('button', { name: 'Применить' }));
     expect(screen.getByRole('status', { name: 'Выбранный цвет' }).textContent).toBe('#aabbcc');
-    fireEvent.click(screen.getByRole('button', { name: /Палитра/ }));
+    expect(screen.getByRole('dialog', { name: 'Палитра цветов' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить цвет' }));
     expect(screen.getByRole('status', { name: 'Количество цветов' }).textContent).toBe('3');
     expect((screen.getByRole('button', { name: 'Сохранить цвет' }) as HTMLButtonElement).disabled).toBe(true);
@@ -67,7 +75,6 @@ describe('всплывающая палитра', () => {
   it('передаёт цвет после изменения оттенка и касания квадрата', () => {
     render(<PaletteHarness />);
     fireEvent.click(screen.getByRole('button', { name: /Палитра/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Свой цвет' }));
     const hue = screen.getByRole('slider', { name: 'Оттенок' });
     const square = screen.getByRole('slider', { name: 'Выбор насыщенности и яркости' });
     hue.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 20, height: 200, right: 20, bottom: 200, toJSON: () => ({}) });
@@ -82,10 +89,11 @@ describe('всплывающая палитра', () => {
   it('не применяет некорректный HEX и позволяет отменить настройку', () => {
     render(<PaletteHarness />);
     fireEvent.click(screen.getByRole('button', { name: /Палитра/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Свой цвет' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'HEX' }), { target: { value: '#zzzzzz' } });
     expect((screen.getByRole('button', { name: 'Применить' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    expect((screen.getByRole('textbox', { name: 'HEX' }) as HTMLInputElement).value).toBe('#254332');
+    expect(screen.getByRole('dialog', { name: 'Палитра цветов' })).toBeTruthy();
     expect(screen.getByRole('status', { name: 'Выбранный цвет' }).textContent).toBe('#254332');
   });
 
@@ -104,7 +112,6 @@ describe('всплывающая палитра', () => {
       const toggle = screen.getByRole('button', { name: /Палитра/ });
       toggle.getBoundingClientRect = () => ({ x: 0, y: 360, top: 360, left: 0, right: 150, bottom: 400, width: 150, height: 40, toJSON: () => ({}) });
       fireEvent.click(toggle);
-      fireEvent.click(screen.getByRole('button', { name: 'Свой цвет' }));
       const dialog = screen.getByRole('dialog', { name: 'Палитра цветов' }) as HTMLDivElement;
       expect(parseFloat(dialog.style.top) + parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(468);
     } finally {

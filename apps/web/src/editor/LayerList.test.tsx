@@ -8,16 +8,21 @@ import { applyAction, createProject, type DrawingProject } from './model';
 
 afterEach(cleanup);
 
-function makeProject({ locked = false } = {}): DrawingProject {
+function makeProject({ locked = false, withStroke = false } = {}): DrawingProject {
   const first = createProject();
-  return applyAction(first, {
+  const two = applyAction(first, {
     type: 'addLayer',
     layer: { kind: 'paint', id: 'second', name: 'Верхний', strokes: [], visible: true, locked, opacity: 1 },
   });
+  if (!withStroke) return two;
+  return applyAction(two, { type: 'addStroke', layerId: 'second', stroke: {
+    id: 'ink-1', kind: 'ink', brushId: 'pencil', color: '#ff0000', width: 5, opacity: 1,
+    points: [{ x: .5, y: .5 }],
+  } });
 }
 
-function Harness({ locked = false }: { locked?: boolean }) {
-  const [history, setHistory] = useState(() => createProjectHistory(makeProject({ locked })));
+function Harness({ locked = false, withStroke = false }: { locked?: boolean; withStroke?: boolean }) {
+  const [history, setHistory] = useState(() => createProjectHistory(makeProject({ locked, withStroke })));
   return <>
     <LayerList layers={history.present.layers} activeLayerId={history.present.activeLayerId} onAction={(action) => setHistory((current) => commitAction(current, action))} />
     <output aria-label="Порядок слоёв">{history.present.layers.map((layer) => layer.id).join(',')}</output>
@@ -73,5 +78,64 @@ describe('перетаскивание слоёв', () => {
     fireEvent.keyDown(handle, { key: 'ArrowUp' });
     const firstId = screen.getByRole('status', { name: 'Активный слой' }).textContent;
     expect(screen.getByRole('status', { name: 'Порядок слоёв' }).textContent).toBe(`second,${firstId}`);
+  });
+
+  it('показывает глазик, меняет видимость и переносит блокировку в меню', () => {
+    render(<Harness />);
+    const visible = screen.getByRole('button', { name: 'Скрыть Верхний' });
+    expect(visible.querySelector('svg')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Заблокировать Верхний' })).toBeNull();
+    fireEvent.click(visible);
+    expect(screen.getByRole('button', { name: 'Показать Верхний' }).querySelector('svg')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Заблокировать' }));
+    expect((screen.getByRole('button', { name: 'Перетащить Верхний' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    expect(screen.getByRole('menuitem', { name: 'Разблокировать' })).toBeTruthy();
+    expect((screen.getByRole('menuitem', { name: 'Удалить слой' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('просит подтвердить удаление слоя с рисунком, отменяет и восстанавливает удаление через Undo', () => {
+    render(<Harness withStroke />);
+    const trigger = screen.getByRole('button', { name: 'Действия со слоем Верхний' });
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить слой' }));
+    expect(screen.getByRole('alertdialog', { name: 'Удалить слой «Верхний»?' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена удаления' }));
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.getByRole('button', { name: 'Действия со слоем Верхний' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить слой' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить удаление' }));
+    expect(screen.queryByRole('button', { name: 'Действия со слоем Верхний' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Действия со слоем Слой 1' }) as HTMLButtonElement)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Слой 1' }));
+    expect((screen.getByRole('menuitem', { name: 'Удалить слой' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Отменить' }));
+    expect(screen.getByRole('button', { name: 'Действия со слоем Верхний' })).toBeTruthy();
+  });
+
+  it('удаляет пустой слой сразу и закрывает меню при клике снаружи', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Действия со слоем Верхний' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить слой' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Действия со слоем Верхний' })).toBeNull();
+  });
+
+  it('в резервном полном экране размещает меню внутри студии и фокусирует его пункты', () => {
+    render(<div className="studio-layout focus-mode"><Harness /></div>);
+    const trigger = screen.getByRole('button', { name: 'Действия со слоем Верхний' });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu');
+    expect(menu.parentElement?.classList.contains('studio-layout')).toBe(true);
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Заблокировать' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(trigger);
   });
 });

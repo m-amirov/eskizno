@@ -84,13 +84,15 @@ test('полноэкранная студия сохраняет инструм�
   await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeVisible();
 });
 
-test('свой цвет открывает HSV редактор, а очистка рисунка обратима', async ({ page }) => {
+test('HSV открыт сразу, а очистка рисунка обратима', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Свободная студия' }).click();
   await page.getByRole('button', { name: /Палитра, выбран/ }).click();
-  await page.getByRole('button', { name: 'Свой цвет' }).click();
+  await expect(page.getByRole('slider', { name: 'Выбор насыщенности и яркости' })).toBeVisible();
   await page.getByRole('textbox', { name: 'HEX' }).fill('#ff0000');
   await page.getByRole('button', { name: 'Применить' }).click();
+  await expect(page.getByRole('dialog', { name: 'Палитра цветов' })).toBeVisible();
+  await page.getByRole('button', { name: 'Закрыть палитру' }).click();
   await expect(page.getByRole('button', { name: /Палитра, выбран #FF0000/ })).toBeVisible();
 
   const canvas = page.getByRole('img', { name: 'Холст для рисования' });
@@ -107,6 +109,33 @@ test('свой цвет открывает HSV редактор, а очистк
   await expect(page.getByText('Штрихов: 0')).toBeVisible();
   await page.getByRole('button', { name: 'Отменить' }).click();
   await expect(page.getByText('Штрихов: 1')).toBeVisible();
+});
+
+test('недавний цвет выбирается без закрытия палитры, глазок и меню управляют слоем', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await page.getByRole('button', { name: /Палитра, выбран/ }).click();
+  await page.getByRole('textbox', { name: 'HEX' }).fill('#ff2200');
+  await page.getByRole('button', { name: 'Применить' }).click();
+  await page.getByRole('button', { name: 'Недавний цвет #FF2200' }).click();
+  await expect(page.getByRole('dialog', { name: 'Палитра цветов' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'HEX' })).toHaveValue('#ff2200');
+  await page.getByRole('button', { name: 'Закрыть палитру' }).click();
+
+  await page.getByRole('button', { name: 'Добавить слой' }).click();
+  const eye = page.getByRole('button', { name: 'Скрыть Слой 2' });
+  await expect(eye.locator('svg')).toBeVisible();
+  await eye.click();
+  await expect(page.getByRole('button', { name: 'Показать Слой 2' })).toBeVisible();
+  await page.getByRole('button', { name: 'Действия со слоем Слой 2' }).click();
+  await page.getByRole('menuitem', { name: 'Заблокировать' }).click();
+  await page.getByRole('button', { name: 'Действия со слоем Слой 2' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Разблокировать' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Удалить слой' })).toBeDisabled();
+  await page.getByRole('menuitem', { name: 'Разблокировать' }).click();
+  await page.getByRole('button', { name: 'Действия со слоем Слой 2' }).click();
+  await page.getByRole('menuitem', { name: 'Удалить слой' }).click();
+  await expect(page.getByRole('button', { name: 'Действия со слоем Слой 2' })).toHaveCount(0);
 });
 
 test('перетаскивание меняет порядок слоёв и отменяется', async ({ page }) => {
