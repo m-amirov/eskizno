@@ -79,7 +79,14 @@ test('новые инструменты доступны без горизонт
   for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(viewport);
     await openStudio(page);
-    await expect(page.getByRole('button', { name: 'Пипетка' })).toBeVisible();
+    const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+    await expect(canvas).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Кисти, выбран Карандаш' })).toBeVisible();
+    await page.getByRole('button', { name: 'Ластик' }).click();
+    await expect(page.getByRole('slider', { name: 'Толщина ластика' })).toBeVisible();
+    const eyedropper = page.getByRole('button', { name: 'Пипетка' });
+    await eyedropper.focus();
+    await expect(eyedropper).toBeFocused();
     await expect(page.getByRole('button', { name: 'Экспортировать PNG' })).toBeVisible();
     if (viewport.width <= 850) {
       await page.getByRole('button', { name: /Слои \(1\) · развернуть/ }).click();
