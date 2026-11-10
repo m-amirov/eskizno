@@ -104,3 +104,82 @@ test('испорченный файл не заменяет рисунок', asy
   await expect(page.getByRole('button', { name: 'Слой 2 · выбран' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Размер нового документа' })).toHaveCount(0);
 });
+
+async function openSideReference(page: import('@playwright/test').Page) {
+  await goToStudio(page);
+  await page.getByLabel('Загрузить референс рядом').setInputFiles(upload);
+  await page.getByRole('button', { name: 'Создать с референсом' }).click();
+  await expect(page.getByRole('region', { name: 'Референс рядом с холстом' })).toBeVisible();
+}
+
+test('масштаб просмотра референса управляется отдельно от рисунка: кнопки, pan, колесо и сброс', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openSideReference(page);
+  const preview = page.getByRole('region', { name: 'Референс рядом с холстом' });
+  const image = page.getByRole('img', { name: 'Загруженный референс' });
+  const slider = page.getByRole('slider', { name: 'Масштаб просмотра референса' });
+  await expect(slider).toHaveValue('100');
+  const initialImage = await image.boundingBox();
+  await page.getByRole('button', { name: 'Увеличить референс' }).click();
+  await expect(slider).toHaveValue('125');
+  expect((await image.boundingBox())?.width).toBeGreaterThan((initialImage?.width ?? 0) * 1.2);
+  await setRange(page, 'Масштаб просмотра референса', '200');
+  await expect(slider).toHaveValue('200');
+  const beforePan = await image.boundingBox();
+  const box = await preview.boundingBox();
+  if (!box) throw new Error('Нет области референса');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 48, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect((await image.boundingBox())?.x).toBeGreaterThan((beforePan?.x ?? 0) + 10);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -150);
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(200);
+  await page.getByRole('button', { name: 'Вписать референс' }).click();
+  await expect(slider).toHaveValue('100');
+  await expect(page.getByText('Штрихов: 0')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await expect(page.getByRole('slider', { name: 'Масштаб просмотра референса' })).toHaveValue('100');
+});
+
+test('боковая панель шире исходной, меняется разделителем и остаётся доступной на планшете и телефоне', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openSideReference(page);
+  const panel = page.getByRole('region', { name: 'Настройки референса' });
+  const divider = page.getByRole('separator', { name: 'Размер области референса' });
+  const initial = await panel.boundingBox();
+  expect(initial?.width).toBeGreaterThan(300);
+  await divider.focus();
+  await divider.press('ArrowLeft');
+  expect((await panel.boundingBox())?.width).toBeGreaterThan(initial?.width ?? 0);
+  const grip = await divider.boundingBox();
+  if (!grip) throw new Error('Нет разделителя');
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 - 50, grip.y + grip.height / 2, { steps: 5 });
+  await page.mouse.up();
+  expect((await panel.boundingBox())?.width).toBeGreaterThan((initial?.width ?? 0) + 20);
+  await page.getByRole('button', { name: 'Полный экран' }).click();
+  await expect(page.getByRole('region', { name: 'Референс рядом с холстом' })).toBeVisible();
+  await page.getByRole('button', { name: 'Выйти из полного экрана' }).click();
+
+  for (const viewport of [{ width: 820, height: 1180 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const reference = page.getByRole('region', { name: 'Настройки референса' });
+    const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+    const referenceBox = await reference.boundingBox();
+    const canvasBox = await canvas.boundingBox();
+    expect(referenceBox?.bottom).toBeLessThan(canvasBox?.y ?? 0);
+    expect(referenceBox?.width).toBeGreaterThan(viewport.width <= 520 ? 330 : 700);
+    await expect(divider).toBeHidden();
+    await page.screenshot({ path: test.info().outputPath(`studio-side-reference-${viewport.width}x${viewport.height}.png`), fullPage: true });
+    await page.getByRole('button', { name: 'Свернуть референс' }).click();
+    await expect(page.getByRole('region', { name: 'Референс рядом с холстом' })).toBeHidden();
+    await page.getByRole('button', { name: 'Развернуть референс' }).click();
+    await expect(page.getByRole('region', { name: 'Референс рядом с холстом' })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  }
+});
