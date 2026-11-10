@@ -93,6 +93,7 @@ export function handleFrame(bounds: SelectionBounds): SelectionBounds {
 }
 
 export function moveSelectionFrame(frame: SelectionBounds, delta: Point): SelectionBounds {
+  if (delta.x === 0 && delta.y === 0) return frame;
   const dx = clamp(delta.x, -frame.left, 1 - frame.right);
   const dy = clamp(delta.y, -frame.top, 1 - frame.bottom);
   return { left: round(frame.left + dx), top: round(frame.top + dy),
@@ -107,16 +108,31 @@ export function resizeSelectionFrame(frame: SelectionBounds, handle: ShapeHandle
     bottom: handle.includes('s') ? round(clamp(point.y, frame.top + min)) : frame.bottom };
 }
 
+/** Resize by pointer displacement, preserving the initial grab offset within a handle. */
+export function resizeSelectionDrag(frame: SelectionBounds, handle: ShapeHandle, start: Point, end: Point): SelectionBounds {
+  if (end.x === start.x && end.y === start.y) return frame;
+  return resizeSelectionFrame(frame, handle, {
+    x: (handle.includes('w') ? frame.left : frame.right) + end.x - start.x,
+    y: (handle.includes('n') ? frame.top : frame.bottom) + end.y - start.y,
+  });
+}
+
 export function handleAt(frame: SelectionBounds, point: Point, width: number, height: number, scale: number): ShapeHandle | null {
   const corners: Record<ShapeHandle, Point> = {
     nw: { x: frame.left, y: frame.top }, ne: { x: frame.right, y: frame.top },
     sw: { x: frame.left, y: frame.bottom }, se: { x: frame.right, y: frame.bottom },
   };
+  let match: ShapeHandle | null = null;
   for (const handle of ['nw', 'ne', 'sw', 'se'] as const) {
     const corner = corners[handle];
-    if (Math.hypot((point.x - corner.x) * width, (point.y - corner.y) * height) * scale <= 10) return handle;
+    if (Math.hypot((point.x - corner.x) * width, (point.y - corner.y) * height) * scale <= 10) {
+      // At small zoom levels several handles may overlap. Treat the ambiguous
+      // area as the object body so a tiny stroke can still be dragged.
+      if (match) return null;
+      match = handle;
+    }
   }
-  return null;
+  return match;
 }
 
 export function transformationForFrame(before: SelectionBounds, after: SelectionBounds): SelectionTransform {

@@ -77,6 +77,18 @@ describe('модель рисунка', () => {
       expect(applyAction(protectedProject, command)).toBe(protectedProject);
     }
   });
+  it('сохраняет увеличение объектов при достижении максимальной толщины 256 px', () => {
+    const base = createProject();
+    const drawn = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId,
+      stroke: { ...stroke, width: 48, points: [{ x: .1, y: .1 }, { x: .2, y: .2 }] } });
+    const scaled = applyAction(drawn, { type: 'transformItems', layerId: base.activeLayerId,
+      ids: ['ink-1'], origin: { x: .1, y: .1 }, scaleX: 8, scaleY: 8,
+      translateX: 0, translateY: 0 });
+    expect(scaled).not.toBe(drawn);
+    expect(scaled.layers[0]).toMatchObject({ strokes: [{ width: 256,
+      points: [{ x: .1, y: .1 }, { x: .9, y: .9 }] }] });
+    expect(parseDrawingProject(scaled)).not.toBeNull();
+  });
   it('продвижение шага урока — обратимое действие без смены схемы v2', () => {
     const lesson = createProject({ lesson: { id: 'line-confidence-v1', audience: 'adult', mode: 'construct', step: 0 } });
     const advanced = applyAction(lesson, { type: 'setLessonStep', step: 1 });

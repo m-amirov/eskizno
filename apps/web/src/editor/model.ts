@@ -363,10 +363,10 @@ export function applyAction(project: DrawingProject, action: ProjectAction): Dra
           y: Math.round((origin.y + (entry.y - origin.y) * scaleY + translateY) * 1_000_000) / 1_000_000,
         });
         const nextStrokes = layer.strokes.map((entry) => wanted.has(entry.id)
-          ? { ...entry, width: entry.width * scaleWidth, points: entry.points.map(point) } : entry);
+          ? { ...entry, width: Math.min(256, entry.width * scaleWidth), points: entry.points.map(point) } : entry);
         const nextOperations = getPaintOperations(layer).map((operation) =>
           operation.type === 'shape' && wanted.has(operation.shape.id)
-            ? { type: 'shape' as const, shape: { ...operation.shape, width: operation.shape.width * scaleWidth,
+            ? { type: 'shape' as const, shape: { ...operation.shape, width: Math.min(256, operation.shape.width * scaleWidth),
               from: point(operation.shape.from), to: point(operation.shape.to) } } : operation);
         if (!nextStrokes.every(isValidStroke)
           || !nextOperations.every((operation) => operation.type !== 'shape' || isValidShape(operation.shape))) return null;

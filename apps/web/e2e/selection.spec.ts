@@ -43,3 +43,22 @@ test('учебный урок не даёт выбрать инструмент 
   await page.getByRole('button', { name: 'Начать урок линий' }).click();
   await expect(page.getByRole('button', { name: 'Выделение' })).toBeDisabled();
 });
+
+test('точечный штрих переносится без захвата перекрывающихся углов рамки', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Холст не виден');
+  await page.mouse.click(box.x + box.width * .4, box.y + box.height * .4);
+  expect(await colorAt(page, .4, .4)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Выделение' }).click();
+  await page.mouse.click(box.x + box.width * .4, box.y + box.height * .4);
+  await expect(page.getByText('Выбрано: 1')).toBeVisible();
+  await dragOnCanvas(page, [.4, .4], [.6, .4]);
+  await page.getByRole('button', { name: /Кисти, выбран/ }).click();
+  await page.getByRole('button', { name: 'Выбрать Карандаш' }).click();
+  // A deselected canvas shows only persisted paint, without green selection handles.
+  expect(await colorAt(page, .4, .4)).toBe(0);
+  expect(await colorAt(page, .6, .4)).toBeGreaterThan(0);
+});

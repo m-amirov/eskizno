@@ -21,6 +21,9 @@ export interface RenderOptions {
   previewShape?: { layerId: string; shape: Shape; existing?: boolean };
   /** Reuses the unmodified prefix before the actively edited shape. */
   shapePrefixCache?: WeakMap<PaintLayer, { shapeId: string; surface: Surface }>;
+  /** A draft transformation retains an immutable source layer to reuse its unchanged prefix. */
+  previewTransform?: { layerId: string; sourceLayer: PaintLayer; ids: readonly string[] };
+  transformPrefixCache?: WeakMap<PaintLayer, { firstChangedIndex: number; surface: Surface }>;
   selection?: { layerId: string; shapeId: string };
   /** Transient multi-object editor overlay, never included in PNG/export. */
   selectionFrame?: SelectionBounds;
@@ -291,6 +294,27 @@ export function renderProject(
     }
 
     let surface = options.paintCache?.get(layer);
+    const draft = options.previewTransform?.layerId === layer.id ? options.previewTransform : null;
+    if (!surface && draft && draft.sourceLayer !== layer) {
+      const wanted = new Set(draft.ids);
+      const firstChangedIndex = getPaintOperations(draft.sourceLayer).findIndex((operation) =>
+        (operation.type === 'shape' && wanted.has(operation.shape.id))
+        || (operation.type === 'stroke' && wanted.has(operation.strokeId)));
+      if (firstChangedIndex >= 0) {
+        let prefix = options.transformPrefixCache?.get(draft.sourceLayer);
+        if (!prefix || prefix.firstChangedIndex !== firstChangedIndex) {
+          const prefixSurface = createSurface(project.width, project.height);
+          paintLayerContents(surfaceContext(prefixSurface), draft.sourceLayer,
+            project.width, project.height, 0, firstChangedIndex);
+          prefix = { firstChangedIndex, surface: prefixSurface };
+          options.transformPrefixCache?.set(draft.sourceLayer, prefix);
+        }
+        surface = createSurface(project.width, project.height);
+        const draftContext = surfaceContext(surface);
+        draftContext.drawImage(prefix.surface, 0, 0);
+        paintLayerContents(draftContext, layer, project.width, project.height, firstChangedIndex);
+      }
+    }
     if (!surface) {
       surface = createSurface(project.width, project.height);
       const paintContext = surfaceContext(surface);

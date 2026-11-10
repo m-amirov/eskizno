@@ -16,7 +16,7 @@ import { exportPng } from './export';
 import type { SaveStatus } from '../studio/useLocalProjects';
 import { isToolAvailable, PROFESSIONAL_TOOL_ACCESS, type ToolAvailabilityContext } from './toolAccess';
 import { handleAt, handleFrame, hitTestSelectable, itemsInMarquee, moveSelectionFrame, normalizeFrame,
-  resizeSelectionFrame, selectionBounds, transformationForFrame, type SelectionBounds,
+  resizeSelectionDrag, selectionBounds, transformationForFrame, type SelectionBounds,
   type SelectionTransform } from './selection';
 
 type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper' | 'select';
@@ -93,6 +93,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const penPointer = useRef<number | null>(null);
   const paintCache = useRef(new WeakMap<PaintLayer, HTMLCanvasElement | OffscreenCanvas>());
   const shapePrefixCache = useRef(new WeakMap<PaintLayer, { shapeId: string; surface: HTMLCanvasElement | OffscreenCanvas }>());
+  const transformPrefixCache = useRef(new WeakMap<PaintLayer, { firstChangedIndex: number; surface: HTMLCanvasElement | OffscreenCanvas }>());
   const [preview, setPreview] = useState<Stroke | null>(null);
   const [previewShape, setPreviewShape] = useState<Shape | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -176,6 +177,10 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       includeReferences: true,
       paintCache: paintCache.current,
       shapePrefixCache: shapePrefixCache.current,
+      transformPrefixCache: transformPrefixCache.current,
+      ...(transformPreview && active?.kind === 'paint' ? { previewTransform: {
+        layerId: active.id, sourceLayer: active, ids: transformPreview.ids,
+      } } : {}),
       ...(preview && gesture.current ? { preview: { layerId: gesture.current.layerId, stroke: preview } } : {}),
       ...(previewShape && gesture.current ? { previewShape: {
         layerId: gesture.current.layerId, shape: previewShape, existing: gesture.current.kind === 'edit',
@@ -515,7 +520,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       const current = gesture.current;
       const next = current.handle === 'move'
         ? moveSelectionFrame(current.frame, { x: point.x - current.start.x, y: point.y - current.start.y })
-        : resizeSelectionFrame(current.frame, current.handle, point);
+        : resizeSelectionDrag(current.frame, current.handle, current.start, point);
       setTransformPreview({ layerId: current.layerId, ids: current.ids,
         ...transformationForFrame(current.frame, next) });
       return;
@@ -593,7 +598,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       if (end) {
         const frame = committed.handle === 'move'
           ? moveSelectionFrame(committed.frame, { x: end.x - committed.start.x, y: end.y - committed.start.y })
-          : resizeSelectionFrame(committed.frame, committed.handle, end);
+          : resizeSelectionDrag(committed.frame, committed.handle, committed.start, end);
         const transform = transformationForFrame(committed.frame, frame);
         if (transform.scaleX !== 1 || transform.scaleY !== 1
           || transform.translateX !== 0 || transform.translateY !== 0) {

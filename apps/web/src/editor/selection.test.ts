@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyAction, createProject, type PaintLayer, type Shape, type Stroke } from './model';
-import { hitTestSelectable, itemsInMarquee, selectionBounds, moveSelectionFrame,
-  resizeSelectionFrame, transformationForFrame } from './selection';
+import { handleAt, handleFrame, hitTestSelectable, itemsInMarquee, selectionBounds, moveSelectionFrame,
+  resizeSelectionDrag, resizeSelectionFrame, transformationForFrame } from './selection';
 
 const line: Stroke = { id: 'line', kind: 'ink', brushId: 'pencil', color: '#112233',
   width: 6, opacity: 1, points: [{ x: .1, y: .2 }, { x: .3, y: .2 }] };
@@ -38,5 +38,26 @@ describe('выделение объектов', () => {
     expect(transformationForFrame(frame, { left: .2, top: .3, right: .6, bottom: .7 })).toEqual({
       origin: { x: .1, y: .2 }, scaleX: 1, scaleY: 1, translateX: .1, translateY: .1,
     });
+  });
+
+  it('у короткого штриха пересекающиеся угловые ручки не перехватывают перенос за центр', () => {
+    const frame = handleFrame({ left: .4, top: .4, right: .4, bottom: .4 });
+    expect(handleAt(frame, { x: .4, y: .4 }, 400, 300, 1)).toBeNull();
+    expect(handleAt({ left: .2, top: .2, right: .6, bottom: .6 },
+      { x: .2, y: .2 }, 400, 300, 1)).toBe('nw');
+  });
+
+  it('не сдвигает угол при захвате внутри допуска маркера, пока курсор не переместился', () => {
+    const frame = { left: .2, top: .2, right: .5, bottom: .5 };
+    const start = { x: .21, y: .21 };
+    expect(resizeSelectionDrag(frame, 'nw', start, start)).toEqual(frame);
+    expect(resizeSelectionDrag(frame, 'nw', start, { x: .26, y: .26 })).toEqual({
+      left: .25, top: .25, right: .5, bottom: .5,
+    });
+  });
+  it('не округляет рамку высокоточного рисунка, если перенос или resize не начинались', () => {
+    const frame = { left: .20000049, top: .20000049, right: .50000049, bottom: .50000049 };
+    expect(moveSelectionFrame(frame, { x: 0, y: 0 })).toEqual(frame);
+    expect(resizeSelectionDrag(frame, 'se', { x: .51, y: .51 }, { x: .51, y: .51 })).toEqual(frame);
   });
 });

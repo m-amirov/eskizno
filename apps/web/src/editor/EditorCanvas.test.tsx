@@ -82,6 +82,47 @@ describe('связь выбранной кисти и штриха', () => {
       ids: ['shape-r2'], scaleX: expect.closeTo(1.333333, 5), scaleY: expect.closeTo(1.333333, 5) }));
   });
 
+  it('клик по угловой ручке без перетаскивания не изменяет размер и историю', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-click', kind: 'rectangle', from: { x: .2, y: .2 }, to: { x: .5, y: .5 },
+        color: '#112233', width: 3, opacity: 1, style: 'both' } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction}
+      onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Выделение' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 140, clientY: 105 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 140, clientY: 105 });
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 84, clientY: 63 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 84, clientY: 63 });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('перемещает точечный штрих, даже когда все четыре маркера его рамки пересекаются', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId,
+      stroke: { id: 'dot', kind: 'ink', brushId: 'pencil', color: '#112233', width: 8,
+        opacity: 1, points: [{ x: .4, y: .4 }] } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction}
+      onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Выделение' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 160, clientY: 120 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 160, clientY: 120 });
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 160, clientY: 120 });
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 240, clientY: 120 });
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 240, clientY: 120 });
+    expect(onAction).toHaveBeenCalledOnce();
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'transformItems', ids: ['dot'],
+      scaleX: 1, scaleY: 1, translateX: .2, translateY: 0 }));
+  });
+
   it('не оставляет фиктивный выбор после Undo, удалившего выбранный объект', () => {
     const base = createProject();
     const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
