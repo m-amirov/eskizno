@@ -14,6 +14,7 @@ import { fitCanvasWidth } from './canvasFit';
 import { normalizeToolSettings } from './brushes';
 import { exportPng } from './export';
 import type { SaveStatus } from '../studio/useLocalProjects';
+import { isToolAvailable, PROFESSIONAL_TOOL_ACCESS, type ToolAvailabilityContext } from './toolAccess';
 
 type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; stroke: Stroke };
@@ -46,6 +47,8 @@ interface EditorCanvasProps {
   saveStatus?: SaveStatus;
   storageMessage?: string | null;
   onRetry?: () => void;
+  toolAccess?: ToolAvailabilityContext;
+  lessonStep?: number;
 }
 
 function newId(): string {
@@ -54,7 +57,8 @@ function newId(): string {
     : `stroke-${Date.now()}-${Math.random()}`;
 }
 
-export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRedo, saveStatus, storageMessage, onRetry }: EditorCanvasProps) {
+export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRedo, saveStatus, storageMessage, onRetry,
+  toolAccess = PROFESSIONAL_TOOL_ACCESS, lessonStep }: EditorCanvasProps) {
   const project = history.present;
   const layoutRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,6 +92,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [tool, setTool] = useState<Tool>('ink');
+  const canUseTool = (candidate: Tool) => isToolAvailable(candidate, toolAccess);
   const [brushId, setBrushId] = useState<BrushId>('pencil');
   const [layersExpanded, setLayersExpanded] = useState(false);
   const [color, setColor] = useState(project.palette[0]);
@@ -187,6 +192,16 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       penPointer.current = null;
     }
   }, [tool]);
+
+  useEffect(() => {
+    if (!canUseTool(tool)) {
+      if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
+      gesture.current = null;
+      setPreview(null);
+      setPreviewShape(null);
+      setTool('ink');
+    }
+  }, [toolAccess, tool]);
 
   useEffect(() => () => {
     if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
@@ -317,6 +332,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const previewStroke = (points: Point[], strokeId: string): Stroke => ({
     id: strokeId, kind: tool === 'erase' ? 'erase' : 'ink', brushId, color, width: size,
     opacity: tool === 'erase' ? 1 : settings.opacity, points,
+    ...(lessonStep === undefined ? {} : { step: lessonStep }),
   });
 
   const beginDrawing = (pointerId: number, layerId: string, point: Point,
@@ -337,6 +353,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   };
 
   const startStroke = (event: PointerEvent<HTMLCanvasElement>) => {
+    if (!canUseTool(tool)) return;
     if (event.button !== 0) return;
     const pointerId = event.pointerId ?? 1;
     if (event.pointerType === 'touch' && penPointer.current !== null) return;
@@ -555,11 +572,11 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       <div className="studio-main">
         <div className={tool === 'shape' ? 'studio-toolbar toolbar-has-shapes' : 'studio-toolbar'} aria-label="Инструменты рисования">
           <div className="toolbar-drawing-tools">
-            <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />
-            <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title="Ластик" aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
-            <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title="Заливка ведром" aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
-            <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title="Фигуры" aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
-            <button type="button" className={tool === 'eyedropper' ? 'tool-active' : ''} aria-label="Пипетка" title="Пипетка" aria-pressed={tool === 'eyedropper'} onClick={() => setTool('eyedropper')}><ToolIcon name="eyedropper" /></button>
+            {canUseTool('ink') && <BrushPicker value={brushId} active={tool === 'ink'} onChange={(next) => { setBrushId(next); setTool('ink'); }} />}
+            <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title={canUseTool('erase') ? 'Ластик' : 'Откроется после урока'} disabled={!canUseTool('erase')} aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
+            <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title={canUseTool('fill') ? 'Заливка ведром' : 'Откроется в следующих уроках'} disabled={!canUseTool('fill')} aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
+            <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title={canUseTool('shape') ? 'Фигуры' : 'Откроется в следующих уроках'} disabled={!canUseTool('shape')} aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
+            <button type="button" className={tool === 'eyedropper' ? 'tool-active' : ''} aria-label="Пипетка" title={canUseTool('eyedropper') ? 'Пипетка' : 'Откроется в следующих уроках'} disabled={!canUseTool('eyedropper')} aria-pressed={tool === 'eyedropper'} onClick={() => setTool('eyedropper')}><ToolIcon name="eyedropper" /></button>
             <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
               if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
                 onAction({ type: 'setPalette', palette: [...project.palette, next] });

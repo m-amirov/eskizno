@@ -105,7 +105,8 @@ export type ProjectAction =
   | { type: 'setLayerOpacity'; layerId: string; opacity: number }
   | { type: 'setActiveLayer'; layerId: string }
   | { type: 'setReferenceTransform'; layerId: string; transform: ReferenceTransform }
-  | { type: 'setPalette'; palette: string[] };
+  | { type: 'setPalette'; palette: string[] }
+  | { type: 'setLessonStep'; step: number };
 
 export interface CreateProjectOptions {
   title?: string;
@@ -340,6 +341,11 @@ export function parseDrawingProject(value: unknown): DrawingProject | null {
 
 export function applyAction(project: DrawingProject, action: ProjectAction): DrawingProject {
   switch (action.type) {
+    case 'setLessonStep': {
+      if (!project.lesson || !Number.isInteger(action.step) || action.step < 0
+        || action.step === project.lesson.step) return project;
+      return nextProject(project, { lesson: { ...project.lesson, step: action.step } });
+    }
     case 'clearDrawing': {
       if (!project.layers.some((layer) => layer.kind === 'paint'
         && (layer.strokes.length > 0 || (layer.operations?.length ?? 0) > 0))) return project;

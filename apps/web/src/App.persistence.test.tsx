@@ -24,6 +24,8 @@ vi.mock('./editor/persistence', () => ({
     memory.db = db;
     return db;
   },
+  loadLearningProgress: async () => ({ schemaVersion: 1, completedLessonIds: [], unlockedToolIds: [] }),
+  saveLearningProgress: async () => {},
   saveProject: async (_db: unknown, project: DrawingProject) => {
     memory.saveCount += 1;
     memory.saveLayers.push(project.layers.length);
@@ -37,7 +39,8 @@ vi.mock('./editor/persistence', () => ({
   },
   listProjects: async () => [...memory.projects.values()].map((raw) => {
     const project = raw as DrawingProject;
-    return { id: project.id, title: project.title, createdAt: project.createdAt, updatedAt: project.updatedAt };
+    return { id: project.id, title: project.title, createdAt: project.createdAt, updatedAt: project.updatedAt,
+      ...(project.lesson ? { lessonId: project.lesson.id } : {}) };
   }).sort((a, b) => b.updatedAt - a.updatedAt),
   deleteProject: async (_db: unknown, id: string) => { memory.projects.delete(id); },
   migrateLegacyV1: async () => {

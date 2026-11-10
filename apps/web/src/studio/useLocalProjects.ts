@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { commitAction, createProjectHistory, redoAction, undoAction, type ProjectHistory } from '../editor/history';
+import { createProjectHistory, redoAction, undoAction, type ProjectHistory } from '../editor/history';
 import { createProject, type DrawingProject, type ProjectAction } from '../editor/model';
+import { guardedCommitAction, PROFESSIONAL_TOOL_ACCESS, type ToolAvailabilityContext } from '../editor/toolAccess';
+import { FIRST_LESSON_ID, isLessonStepSatisfied, learningLessonSteps } from '../learning/lessons';
+import { completeLearningLesson, duplicateLessonProject, normalizeLearningProgress } from '../learning/progress';
 import { addReferenceLayer } from '../editor/reference-mode';
 import type { ImportedImage } from '../editor/import-image';
 import {
-  LEGACY_STORAGE_KEY, deleteProject, listProjects, loadProject, migrateLegacyV1, openProjectDb, saveProject,
+  LEGACY_STORAGE_KEY, deleteProject, listProjects, loadLearningProgress, loadProject, migrateLegacyV1, openProjectDb,
+  saveLearningProgress, saveProject,
   type ProjectSummary,
 } from '../editor/persistence';
 
@@ -35,6 +39,8 @@ export function useLocalProjects() {
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [assets, setAssets] = useState<Map<string, Blob>>(() => new Map());
+  const [learningProgress, setLearningProgress] = useState(() => normalizeLearningProgress(undefined));
+  const [learningMessage, setLearningMessage] = useState<string | null>(null);
   const dbRef = useRef<IDBDatabase | null>(null);
   const assetsRef = useRef(new Map<string, Blob>());
   const savedRef = useRef<DrawingProject | null>(null);
@@ -144,12 +150,13 @@ export function useLocalProjects() {
         } catch {
           setMigrationMessage('Не удалось перенести прежний рисунок. Существующие работы доступны; исходный черновик не удалён.');
         }
-        const found = await listProjects(db);
+        const [found, restoredLearningProgress] = await Promise.all([listProjects(db), loadLearningProgress(db)]);
         const preferred = found.find(({ id }) => id === lastOpened());
         const mostRecent = preferred ?? found[0];
         const restored = mostRecent ? await loadProject(db, mostRecent.id) : null;
         if (cancelled) return;
         setProjects(found);
+        setLearningProgress(restoredLearningProgress);
         if (userEditedDuringBootRef.current) {
           // A quick first stroke must not be replaced by asynchronous startup restoration.
           savedRef.current = null;
@@ -208,10 +215,10 @@ export function useLocalProjects() {
     return () => window.removeEventListener('beforeunload', warn);
   }, [history.present, ready, saveStatus]);
 
-  const apply = (action: ProjectAction) => {
+  const apply = (action: ProjectAction, access: ToolAvailabilityContext = PROFESSIONAL_TOOL_ACCESS) => {
     editRevisionRef.current += 1;
     if (!ready) userEditedDuringBootRef.current = true;
-    setHistory((current) => commitAction(current, action));
+    setHistory((current) => guardedCommitAction(current, action, access));
   };
   const undo = () => {
     editRevisionRef.current += 1;
@@ -334,6 +341,119 @@ export function useLocalProjects() {
     return loadProject(dbRef.current, id);
   }, []);
 
+  const startLesson = async (): Promise<boolean> => {
+    const db = dbRef.current;
+    if (!ready || !db) return false;
+    if (currentRef.current.lesson?.id === FIRST_LESSON_ID) return true;
+    const revision = editRevisionRef.current;
+    if (!(await flush())) return false;
+    if (revision !== editRevisionRef.current) return false;
+    const existing = projects.find((entry) => entry.lessonId === FIRST_LESSON_ID);
+    if (existing) return open(existing.id);
+    const project = createProject({ title: 'Линия и уверенность', lesson: {
+      id: FIRST_LESSON_ID, audience: 'adult', mode: 'construct', step: 0,
+    } });
+    try {
+      await saveProject(db, project, new Map());
+      if (revision !== editRevisionRef.current) return false;
+      generationRef.current += 1;
+      currentRef.current = project;
+      savedRef.current = project;
+      writtenRef.current = project;
+      assetsRef.current = new Map();
+      setAssets(assetsRef.current);
+      setHistory(createProjectHistory(project));
+      rememberOpened(project.id);
+      setSaveStatus('saved');
+      setStorageMessage(null);
+      setLearningMessage(null);
+      await refreshProjects(db);
+      return true;
+    } catch {
+      setLearningMessage('Не удалось создать урок. Текущий рисунок не изменён.');
+      return false;
+    }
+  };
+
+  const openProfessionalWorkspace = async (): Promise<boolean> => {
+    const db = dbRef.current;
+    if (!ready || !db) return false;
+    if (!currentRef.current.lesson) return true;
+    const revision = editRevisionRef.current;
+    if (!(await flush()) || revision !== editRevisionRef.current) return false;
+    const lastProfessional = projects.find((entry) => !entry.lessonId);
+    if (lastProfessional) return open(lastProfessional.id);
+    const project = createProject();
+    try {
+      await saveProject(db, project, new Map());
+      if (revision !== editRevisionRef.current) return false;
+      generationRef.current += 1;
+      currentRef.current = project;
+      savedRef.current = project;
+      writtenRef.current = project;
+      assetsRef.current = new Map();
+      setAssets(assetsRef.current);
+      setHistory(createProjectHistory(project));
+      rememberOpened(project.id);
+      setSaveStatus('saved');
+      setStorageMessage(null);
+      await refreshProjects(db);
+      return true;
+    } catch {
+      setStorageMessage('Не удалось открыть свободную студию. Учебный рисунок не изменён.');
+      return false;
+    }
+  };
+
+  const copyLessonToStudio = async (): Promise<boolean> => {
+    const db = dbRef.current;
+    if (!ready || !db || !currentRef.current.lesson) return false;
+    const revision = editRevisionRef.current;
+    if (!(await flush()) || revision !== editRevisionRef.current) return false;
+    const source = currentRef.current;
+    try {
+      const copy = duplicateLessonProject(source);
+      const copiedAssets = new Map(assetsRef.current);
+      await saveProject(db, copy, copiedAssets);
+      if (revision !== editRevisionRef.current) return false;
+      generationRef.current += 1;
+      currentRef.current = copy;
+      savedRef.current = copy;
+      writtenRef.current = copy;
+      assetsRef.current = copiedAssets;
+      setAssets(copiedAssets);
+      setHistory(createProjectHistory(copy));
+      rememberOpened(copy.id);
+      setSaveStatus('saved');
+      setStorageMessage(null);
+      setLearningMessage(null);
+      await refreshProjects(db);
+      return true;
+    } catch {
+      setLearningMessage('Не удалось создать копию. Учебный рисунок остался на месте.');
+      return false;
+    }
+  };
+
+  const finishLesson = async (): Promise<boolean> => {
+    const db = dbRef.current;
+    if (!ready || !db || currentRef.current.lesson?.id !== FIRST_LESSON_ID
+      || currentRef.current.lesson.step < learningLessonSteps.length
+      || !learningLessonSteps.every((_, i) => isLessonStepSatisfied(currentRef.current, i))) return false;
+    const revision = editRevisionRef.current;
+    if (!(await flush()) || revision !== editRevisionRef.current) return false;
+    const updated = completeLearningLesson(learningProgress, FIRST_LESSON_ID);
+    try {
+      await saveLearningProgress(db, updated);
+      if (aliveRef.current) { setLearningProgress(updated); setLearningMessage(null); }
+      return true;
+    } catch {
+      setLearningMessage('Не удалось сохранить завершение урока. Повторите попытку — доступ не изменён.');
+      return false;
+    }
+  };
+
   return { history, ready, saveStatus, storageMessage, migrationMessage, projects, assets,
+    learningProgress, learningMessage, startLesson, openProfessionalWorkspace, copyLessonToStudio, finishLesson,
     apply, undo, redo, flush, open, createNew, createWithReference, remove, retry, loadPreview };
 }

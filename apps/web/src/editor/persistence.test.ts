@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { applyAction, createProject, type ReferenceLayer } from './model';
-import { deleteProject, listProjects, loadProgress, loadProject, migrateLegacyV1,
-  saveProgress, saveProject } from './persistence';
+import { deleteProject, listProjects, loadLearningProgress, loadProgress, loadProject, migrateLegacyV1,
+  saveLearningProgress, saveProgress, saveProject } from './persistence';
 
 /** Transactional, asynchronous IndexedDB stand-in; no browser or network required. */
 function memoryDb() {
@@ -93,6 +93,22 @@ function memoryDb() {
 }
 
 describe('локальное хранение проектов', () => {
+  it('прогресс нового обучения независим от прежнего progress и переживает ошибку транзакции', async () => {
+    const { db, failPut } = memoryDb();
+    const original = { schemaVersion: 1 as const,
+      completedLessonIds: ['line-confidence-v1'], unlockedToolIds: ['ink', 'erase'] as const };
+    expect(await loadLearningProgress(db)).toEqual({ schemaVersion: 1, completedLessonIds: [], unlockedToolIds: [] });
+    await saveProgress(db, { schemaVersion: 1, lessonAttempts: { 'botanical-branch': 3 },
+      earnedAchievementIds: ['starter'] });
+    await saveLearningProgress(db, { ...original, unlockedToolIds: [...original.unlockedToolIds] });
+    expect(await loadLearningProgress(db)).toEqual(original);
+    expect(await loadProgress(db)).toEqual({ schemaVersion: 1,
+      lessonAttempts: { 'botanical-branch': 3 }, earnedAchievementIds: ['starter'] });
+    failPut();
+    await expect(saveLearningProgress(db, { schemaVersion: 1,
+      completedLessonIds: [], unlockedToolIds: [] })).rejects.toThrow();
+    expect(await loadLearningProgress(db)).toEqual(original);
+  });
   it('восстанавливает слои и Blob референса без потери свойств и сортирует галерею', async () => {
     const { db } = memoryDb();
     const base = createProject({ title: 'Тест рисунка' });
@@ -115,6 +131,15 @@ describe('локальное хранение проектов', () => {
     await deleteProject(db, project.id);
     expect(await loadProject(db, project.id)).toBeNull();
     expect(await listProjects(db)).toEqual([]);
+  });
+
+  it('показывает учебную метку в списке проектов, не читая вложения', async () => {
+    const { db, fullAssetScans } = memoryDb();
+    const lesson = createProject({ lesson: { id: 'line-confidence-v1', audience: 'adult', mode: 'construct', step: 0 } });
+    await saveProject(db, lesson, new Map());
+    const summaries = await listProjects(db);
+    expect(summaries).toEqual([expect.objectContaining({ id: lesson.id, lessonId: 'line-confidence-v1' })]);
+    expect(fullAssetScans()).toBe(0);
   });
 
   it('не выдаёт успешное сохранение при отказе транзакции и сохраняет прежний проект', async () => {
