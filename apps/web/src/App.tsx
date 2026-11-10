@@ -77,9 +77,10 @@ export function App() {
           </section>
         )}
 
-        {view === 'studio' && <Studio history={storage.history} saveStatus={storage.saveStatus}
+        {view === 'studio' && <Studio history={storage.history} assets={storage.assets} saveStatus={storage.saveStatus}
           storageMessage={storage.storageMessage} onAction={storage.apply} onUndo={storage.undo} onRedo={storage.redo}
-          onRetry={() => { void storage.retry(); }} />}
+          onRetry={() => { void storage.retry(); }} onNewBlank={storage.createNew}
+          onNewWithReference={storage.createWithReference} />}
 
         {view === 'projects' && <>
           {storage.storageMessage && <div className="gallery-storage-error" role="alert">{storage.storageMessage}

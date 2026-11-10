@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { commitAction, createProjectHistory, redoAction, undoAction, type ProjectHistory } from '../editor/history';
 import { createProject, type DrawingProject, type ProjectAction } from '../editor/model';
+import { addReferenceLayer } from '../editor/reference-mode';
+import type { ImportedImage } from '../editor/import-image';
 import {
   LEGACY_STORAGE_KEY, deleteProject, listProjects, loadProject, migrateLegacyV1, openProjectDb, saveProject,
   type ProjectSummary,
@@ -32,6 +34,7 @@ export function useLocalProjects() {
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [migrationMessage, setMigrationMessage] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [assets, setAssets] = useState<Map<string, Blob>>(() => new Map());
   const dbRef = useRef<IDBDatabase | null>(null);
   const assetsRef = useRef(new Map<string, Blob>());
   const savedRef = useRef<DrawingProject | null>(null);
@@ -44,6 +47,7 @@ export function useLocalProjects() {
   const generationRef = useRef(0);
   const aliveRef = useRef(true);
   const userEditedDuringBootRef = useRef(false);
+  const editRevisionRef = useRef(0);
 
   const refreshProjects = useCallback(async (db: IDBDatabase) => {
     const found = await listProjects(db);
@@ -155,6 +159,7 @@ export function useLocalProjects() {
           savedRef.current = restored.project;
           writtenRef.current = restored.project;
           assetsRef.current = restored.assets;
+          setAssets(restored.assets);
           setHistory(createProjectHistory(restored.project));
           setSaveStatus('saved');
         } else {
@@ -204,14 +209,17 @@ export function useLocalProjects() {
   }, [history.present, ready, saveStatus]);
 
   const apply = (action: ProjectAction) => {
+    editRevisionRef.current += 1;
     if (!ready) userEditedDuringBootRef.current = true;
     setHistory((current) => commitAction(current, action));
   };
   const undo = () => {
+    editRevisionRef.current += 1;
     if (!ready) userEditedDuringBootRef.current = true;
     setHistory(undoAction);
   };
   const redo = () => {
+    editRevisionRef.current += 1;
     if (!ready) userEditedDuringBootRef.current = true;
     setHistory(redoAction);
   };
@@ -226,6 +234,7 @@ export function useLocalProjects() {
       currentRef.current = loaded.project;
       savedRef.current = loaded.project;
       assetsRef.current = loaded.assets;
+      setAssets(loaded.assets);
       rememberOpened(loaded.project.id);
       setHistory(createProjectHistory(loaded.project));
       setSaveStatus('saved');
@@ -239,14 +248,43 @@ export function useLocalProjects() {
   };
 
   const createNew = async (): Promise<boolean> => {
+    const revision = editRevisionRef.current;
     if (!(await flush())) return false;
+    if (revision !== editRevisionRef.current) {
+      setStorageMessage('Рисунок изменился во время сохранения. Новый холст не создан, ваши правки сохранены в студии.');
+      return false;
+    }
     const project = createProject();
     generationRef.current += 1;
     assetsRef.current = new Map();
+    setAssets(assetsRef.current);
     savedRef.current = null;
     currentRef.current = project;
     setHistory(createProjectHistory(project));
     // A new canvas exists even when its first IndexedDB write fails; report that failure in the studio.
+    void persist(project);
+    return true;
+  };
+
+  const createWithReference = async (
+    imported: ImportedImage, placement: 'overlay' | 'side', size: { width: number; height: number },
+  ): Promise<boolean> => {
+    const revision = editRevisionRef.current;
+    if (!ready || !(await flush())) return false;
+    if (revision !== editRevisionRef.current) {
+      setStorageMessage('Рисунок изменился во время сохранения. Импорт отменён, ваши правки сохранены в студии.');
+      return false;
+    }
+    const initial = createProject({ width: size.width, height: size.height });
+    const assetId = crypto.randomUUID();
+    const project = addReferenceLayer(initial, assetId, placement);
+    const nextAssets = new Map([[assetId, imported.blob]]);
+    generationRef.current += 1;
+    assetsRef.current = nextAssets;
+    setAssets(nextAssets);
+    savedRef.current = null;
+    currentRef.current = project;
+    setHistory(createProjectHistory(project));
     void persist(project);
     return true;
   };
@@ -263,6 +301,7 @@ export function useLocalProjects() {
         currentRef.current = blank;
         savedRef.current = blank;
         assetsRef.current = new Map();
+        setAssets(assetsRef.current);
         rememberOpened(null);
         setHistory(createProjectHistory(blank));
         setSaveStatus('empty');
@@ -295,6 +334,6 @@ export function useLocalProjects() {
     return loadProject(dbRef.current, id);
   }, []);
 
-  return { history, ready, saveStatus, storageMessage, migrationMessage, projects,
-    apply, undo, redo, flush, open, createNew, remove, retry, loadPreview };
+  return { history, ready, saveStatus, storageMessage, migrationMessage, projects, assets,
+    apply, undo, redo, flush, open, createNew, createWithReference, remove, retry, loadPreview };
 }
