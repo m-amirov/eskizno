@@ -12,6 +12,8 @@ const memory = vi.hoisted(() => ({
 vi.mock('./editor/persistence', () => ({
   LEGACY_STORAGE_KEY: 'eskizno:prototype:botanical-branch:v1',
   openProjectDb: async () => ({ close: vi.fn(), onversionchange: null }),
+  loadLearningProgress: async () => ({ schemaVersion: 1, completedLessonIds: [], unlockedToolIds: [] }),
+  saveLearningProgress: async () => {},
   saveProject: async (_db: unknown, project: DrawingProject, assets: Map<string, Blob>) => {
     if (memory.holdSave) await memory.holdSave;
     memory.projects.set(project.id, { project: structuredClone(project), assets: new Map(assets) });
@@ -22,6 +24,7 @@ vi.mock('./editor/persistence', () => ({
   },
   listProjects: async () => [...memory.projects.values()].map(({ project }) => ({
     id: project.id, title: project.title, createdAt: project.createdAt, updatedAt: project.updatedAt,
+    ...(project.lesson ? { lessonId: project.lesson.id } : {}),
   })),
   deleteProject: async (_db: unknown, id: string) => { memory.projects.delete(id); },
   migrateLegacyV1: async () => null,

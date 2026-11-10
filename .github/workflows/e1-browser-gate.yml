@@ -5,11 +5,13 @@ on:
     branches:
       - feat/e1-6-own-sketch
       - feat/e1-7-finish
+      - feat/r1-dual-workspaces
   pull_request:
     branches:
       - main
       - feat/e1-5-local-projects
       - feat/e1-6-own-sketch
+      - feat/e1-7-finish
 
 permissions:
   contents: read

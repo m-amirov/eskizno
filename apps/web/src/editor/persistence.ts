@@ -1,4 +1,5 @@
 import { applyAction, createProject, parseDrawingProject, type DrawingProject, type Stroke } from './model';
+import { normalizeLearningProgress, type LearningProgress } from '../learning/progress';
 
 const DB_NAME = 'eskizno-projects';
 const DB_VERSION = 2;
@@ -7,7 +8,7 @@ const LEGACY_DELETED_KEY = 'deleted:legacy-botanical-branch-v1';
 export const LEGACY_STORAGE_KEY = 'eskizno:prototype:botanical-branch:v1';
 
 export interface SavedProject { project: DrawingProject; assets: Map<string, Blob> }
-export interface ProjectSummary { id: string; title: string; createdAt: number; updatedAt: number }
+export interface ProjectSummary { id: string; title: string; createdAt: number; updatedAt: number; lessonId?: string }
 export interface ProgressState {
   schemaVersion: 1;
   lessonAttempts: Record<string, number>;
@@ -102,7 +103,8 @@ export async function listProjects(db: IDBDatabase): Promise<ProjectSummary[]> {
   return raw.flatMap((record) => {
     const project = parseDrawingProject(record);
     return project ? [{ id: project.id, title: project.title,
-      createdAt: project.createdAt, updatedAt: project.updatedAt }] : [];
+      createdAt: project.createdAt, updatedAt: project.updatedAt,
+      ...(project.lesson ? { lessonId: project.lesson.id } : {}) }] : [];
   }).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
@@ -147,6 +149,22 @@ export async function loadProgress(db: IDBDatabase): Promise<ProgressState> {
     transaction.objectStore('progress').get('global'));
   await done;
   return normalizeProgress(result?.value);
+}
+
+export async function saveLearningProgress(db: IDBDatabase, progress: LearningProgress): Promise<void> {
+  const transaction = db.transaction('progress', 'readwrite');
+  const done = transactionDone(transaction);
+  transaction.objectStore('progress').put({ key: 'learning', value: normalizeLearningProgress(progress) });
+  await done;
+}
+
+export async function loadLearningProgress(db: IDBDatabase): Promise<LearningProgress> {
+  const transaction = db.transaction('progress', 'readonly');
+  const done = transactionDone(transaction);
+  const result = await requestValue<{ key: string; value: unknown } | undefined>(
+    transaction.objectStore('progress').get('learning'));
+  await done;
+  return normalizeLearningProgress(result?.value);
 }
 
 /** A legacy localStorage key can be read only when this app runs on the same origin. */

@@ -35,6 +35,15 @@ const stroke: Stroke = {
 };
 
 describe('модель рисунка', () => {
+  it('продвижение шага урока — обратимое действие без смены схемы v2', () => {
+    const lesson = createProject({ lesson: { id: 'line-confidence-v1', audience: 'adult', mode: 'construct', step: 0 } });
+    const advanced = applyAction(lesson, { type: 'setLessonStep', step: 1 });
+    expect(advanced.lesson?.step).toBe(1);
+    expect(advanced.schemaVersion).toBe(2);
+    expect(applyAction(advanced, { type: 'setLessonStep', step: -1 })).toBe(advanced);
+    expect(applyAction(createProject(), { type: 'setLessonStep', step: 1 })).not.toHaveProperty('lesson');
+    expect(lesson.lesson?.step).toBe(0);
+  });
   it('хранит операции в порядке штрих → заливка → фигура → штрих, сохраняя прежнее поле strokes', () => {
     const original = createProject();
     const first = applyAction(original, { type: 'addStroke', layerId: original.activeLayerId, stroke });
