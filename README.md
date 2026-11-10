@@ -92,6 +92,7 @@ npm run test:e2e
 ## План работ
 
 - [План E1: редактор и свободная студия](docs/superpowers/plans/2026-11-09-eskizno-e1-editor-studio.md)
+- [E1: ручная приёмка на планшете, телефоне и с реальными референсами](docs/qa/e1-device-acceptance.md)
 - [План расширенной библиотеки кистей и названий слоёв](docs/superpowers/plans/2026-11-09-layer-rename-brush-library.md)
 - [Заливка, фигуры и прозрачность кисти](docs/superpowers/plans/2026-11-09-bucket-shapes-opacity.md)
 - [Иконки и перемещение удержанием](docs/superpowers/plans/2026-11-09-icon-toolbar-long-press-shapes.md)
