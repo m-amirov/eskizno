@@ -138,6 +138,21 @@ test('масштаб просмотра референса управляетс�
   await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(200);
   await page.getByRole('button', { name: 'Вписать референс' }).click();
   await expect(slider).toHaveValue('100');
+  // Two real Chromium touch contacts should zoom the preview without touching the drawing canvas.
+  const session = await page.context().newCDPSession(page);
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 });
+  const touchBox = await preview.boundingBox();
+  if (!touchBox) throw new Error('Нет области для pinch');
+  const centerX = touchBox.x + touchBox.width / 2, centerY = touchBox.y + touchBox.height / 2;
+  await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [
+    { x: centerX - 35, y: centerY, id: 1 }, { x: centerX + 35, y: centerY, id: 2 },
+  ] });
+  await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [
+    { x: centerX - 85, y: centerY, id: 1 }, { x: centerX + 85, y: centerY, id: 2 },
+  ] });
+  await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect.poll(async () => Number(await slider.inputValue())).toBeGreaterThan(100);
+  await session.send('Emulation.setTouchEmulationEnabled', { enabled: false });
   await expect(page.getByText('Штрихов: 0')).toBeVisible();
   await page.reload();
   await page.getByRole('button', { name: 'Свободная студия' }).click();
@@ -161,6 +176,7 @@ test('боковая панель шире исходной, меняется р
   await page.mouse.move(grip.x + grip.width / 2 - 50, grip.y + grip.height / 2, { steps: 5 });
   await page.mouse.up();
   expect((await panel.boundingBox())?.width).toBeGreaterThan((initial?.width ?? 0) + 20);
+  await page.screenshot({ path: test.info().outputPath('studio-side-reference-desktop.png'), fullPage: true });
   await page.getByRole('button', { name: 'Полный экран' }).click();
   await expect(page.getByRole('region', { name: 'Референс рядом с холстом' })).toBeVisible();
   await page.getByRole('button', { name: 'Выйти из полного экрана' }).click();
