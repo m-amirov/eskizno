@@ -94,5 +94,10 @@ test('новые инструменты доступны без горизонт
     await expect(page.getByRole('slider', { name: 'Непрозрачность слоя Слой 1' })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, JSON.stringify(viewport)).toBeLessThanOrEqual(1);
+    await page.screenshot({
+      path: test.info().outputPath(`studio-${viewport.width}x${viewport.height}.png`),
+      fullPage: true,
+      animations: 'disabled',
+    });
   }
 });

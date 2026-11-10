@@ -42,6 +42,13 @@ jobs:
         run: npm run build
       - name: Browser regressions
         run: npm run test:e2e -- --reporter=line
+      - name: Store E1 visual acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskizno-e1-viewport-screenshots
+          path: apps/web/test-results/**/studio-*.png
+          if-no-files-found: warn
       - name: Store browser failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
