@@ -1,0 +1,51 @@
+name: E1 browser gate
+
+on:
+  push:
+    branches:
+      - feat/e1-6-own-sketch
+  pull_request:
+    branches:
+      - main
+      - feat/e1-5-local-projects
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Prepare Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install project dependencies
+        run: npm ci
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit regressions
+        run: npm run test:unit
+      - name: Build
+        run: npm run build
+      - name: Browser regressions
+        run: npm run test:e2e -- --reporter=line
+      - name: Store browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eskizno-playwright-failures
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+          if-no-files-found: ignore
