@@ -324,3 +324,14 @@ export function renderProject(
   }
   context.restore();
 }
+
+/** Sample the already-composited artboard at normalized coordinates, never its editing overlay. */
+export function pickCompositedColor(context: CanvasRenderingContext2D, point: { x: number; y: number }): string {
+  const { width, height } = context.canvas;
+  const x = Math.max(0, Math.min(width - 1, Math.floor(point.x * width)));
+  const y = Math.max(0, Math.min(height - 1, Math.floor(point.y * height)));
+  const [red, green, blue, alpha] = context.getImageData(x, y, 1, 1).data;
+  const opacity = alpha / 255;
+  const channels = [red, green, blue].map((value) => Math.round(value * opacity + 255 * (1 - opacity)));
+  return `#${channels.map((value) => value.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}

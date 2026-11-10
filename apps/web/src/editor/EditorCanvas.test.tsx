@@ -486,7 +486,7 @@ describe('связь выбранной кисти и штриха', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
       stroke: expect.objectContaining({ points: [{ x: .25, y: 1 / 3 }, { x: .325, y: 110 / 300 }, { x: .375, y: .4 }] }) }));
-    expect(screen.getByText('100%')).toBeTruthy();
+    expect(document.querySelector('.zoom-controls > span')?.textContent).toBe('100%');
   });
 
   it('не повторяет coalesced-точки при начале мазка поверх существующей фигуры', () => {

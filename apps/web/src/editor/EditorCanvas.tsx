@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent 
 import { clientToNormalized, INITIAL_VIEW, normalizedWheelDelta, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState } from './geometry';
 import type { ProjectHistory } from './history';
 import { getPaintOperations, getShapes, MAX_LAYERS, type BrushId, type PaintLayer, type Point, type ProjectAction, type Shape, type ShapeKind, type ShapeStyle, type Stroke } from './model';
-import { renderProject } from './render';
+import { pickCompositedColor, renderProject } from './render';
 import { hitTestShape, moveShape, resizeShape, shapeHandleAt, type ShapeHandle } from './shapeGeometry';
 import { PalettePopover } from './PalettePopover';
 import { BrushPicker } from './BrushPicker';
@@ -12,9 +12,10 @@ import { LayerList } from './LayerList';
 import { recentAndCanvasColors } from './paletteHistory';
 import { fitCanvasWidth } from './canvasFit';
 import { normalizeToolSettings } from './brushes';
+import { exportPng } from './export';
 import type { SaveStatus } from '../studio/useLocalProjects';
 
-type Tool = 'ink' | 'erase' | 'fill' | 'shape';
+type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; stroke: Stroke };
 type FillGesture = { kind: 'fill'; pointerId: number; layerId: string; point: Point };
 type ShapeGesture = { kind: 'shape'; pointerId: number; layerId: string; shape: Shape };
@@ -100,6 +101,9 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const [focusMode, setFocusMode] = useState(false);
   const [canvasDisplayWidth, setCanvasDisplayWidth] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportWithReference, setExportWithReference] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const layersBodyId = useId();
   const confirmClearButtonRef = useRef<HTMLButtonElement>(null);
   const immersive = nativeFullscreen || focusMode;
@@ -118,9 +122,27 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const selectedShape = active?.kind === 'paint'
     ? getShapes(active).find((shape) => shape.id === selectedShapeId) : undefined;
   const displayedRecentColors = recentAndCanvasColors(recentColors, project, color);
+  const hasOverlayReference = project.layers.some((layer) => layer.kind === 'reference' && layer.placement === 'overlay');
   const selectColor = (next: string) => {
     setColor(next);
     setRecentColors((previous) => [next, ...previous.filter((entry) => entry.toLowerCase() !== next.toLowerCase())].slice(0, 8));
+  };
+
+  const downloadPng = async () => {
+    setExportError(null);
+    try {
+      const blob = await exportPng(project, referenceImages ?? new Map(), { includeReferences: exportWithReference });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${project.title.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 70) || 'eskizno'}.png`;
+      anchor.click();
+      // Leave one event-loop turn for the browser to accept the download URL.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      setExportOpen(false);
+    } catch {
+      setExportError('Не удалось подготовить PNG. Попробуйте ещё раз.');
+    }
   };
 
   useEffect(() => { if (confirmClear) confirmClearButtonRef.current?.focus(); }, [confirmClear]);
@@ -261,6 +283,22 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
     return normalized ? screenToArtboard(normalized, view) : null;
   };
 
+  const sampleDrawingColor = (point: Point) => {
+    // Render to an untransformed scratch surface so zoom/pan and selection handles
+    // never contaminate the sampled color.
+    const surface = document.createElement('canvas');
+    surface.width = project.width;
+    surface.height = project.height;
+    const context = surface.getContext('2d');
+    if (!context) return;
+    renderProject(context, project, referenceImages ?? new Map(), {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+      paintCache: paintCache.current,
+    });
+    selectColor(pickCompositedColor(context, point));
+    setTool('ink');
+  };
+
   const pointerSamples = (event: PointerEvent<HTMLCanvasElement>): Point[] => {
     const rect = event.currentTarget.getBoundingClientRect();
     const native = event.nativeEvent;
@@ -319,6 +357,11 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
         pinchPrevious.current = [...touchPointers.current.values()].slice(0, 2) as [Point, Point];
         return;
       }
+    }
+    if (tool === 'eyedropper') {
+      const point = pointerPoint(event);
+      if (point && !gesture.current) sampleDrawingColor(point);
+      return;
     }
     if (!canDraw || gesture.current) return;
     const point = pointerPoint(event);
@@ -516,6 +559,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
             <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title="Ластик" aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
             <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title="Заливка ведром" aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
             <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title="Фигуры" aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
+            <button type="button" className={tool === 'eyedropper' ? 'tool-active' : ''} aria-label="Пипетка" title="Пипетка" aria-pressed={tool === 'eyedropper'} onClick={() => setTool('eyedropper')}><ToolIcon name="eyedropper" /></button>
             <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
               if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
                 onAction({ type: 'setPalette', palette: [...project.palette, next] });
@@ -548,6 +592,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
             <button type="button" aria-label="Отменить" title="Отменить" onClick={onUndo} disabled={!history.past.length}><ToolIcon name="undo" /></button>
             <button type="button" aria-label="Повторить" title="Повторить" onClick={onRedo} disabled={!history.future.length}><ToolIcon name="redo" /></button>
             <button type="button" className="clear-trigger" aria-label="Очистить" title="Очистить" onClick={() => { cancelStroke(); setConfirmClear(true); }} disabled={contentCount === 0}><ToolIcon name="trash" /></button>
+            <button type="button" aria-label="Экспортировать PNG" title="Экспортировать PNG" onClick={() => { setExportError(null); setExportOpen(true); }}><ToolIcon name="download" /></button>
             <button type="button" className="fullscreen-toggle" aria-label={immersive ? 'Выйти из полного экрана' : 'Полный экран'} title={immersive ? 'Выйти из полного экрана' : 'Полный экран'} aria-pressed={immersive} onClick={toggleFullscreen}><ToolIcon name={immersive ? 'minimize' : 'maximize'} /></button>
           </div>
         </div>
@@ -628,6 +673,22 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
           </div>
         </div>
       )}
+      {exportOpen && <div className="clear-dialog-backdrop" onKeyDown={(event) => {
+        if (event.key === 'Escape') { event.stopPropagation(); setExportOpen(false); }
+      }}>
+        <div className="clear-dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title">
+          <h3 id="export-dialog-title">Экспорт PNG</h3>
+          <p>Размер файла: {project.width} × {project.height} пикселей. Масштаб холста и элементы редактора не попадут в изображение.</p>
+          <label className="export-reference-option"><input type="checkbox" checked={exportWithReference}
+            disabled={!hasOverlayReference} onChange={(event) => setExportWithReference(event.target.checked)} />
+            Включить эскиз-референс в PNG</label>
+          {exportError && <p role="alert">{exportError}</p>}
+          <div className="clear-dialog-actions">
+            <button type="button" onClick={() => setExportOpen(false)}>Отмена</button>
+            <button type="button" className="export-confirm-button" onClick={downloadPng}>Скачать PNG</button>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }

@@ -248,7 +248,7 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .layers-total { font-size: 11px; color: #748277; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .layers-hint { font-size: 12px; line-height: 1.5; color: #748277; margin: 0 5px 12px; }
 .layers-list { display: grid; gap: 5px; }
-.layer-row { position: relative; display: flex; gap: 2px; align-items: center; border: 1px solid transparent; border-radius: 8px; min-height: 42px; }
+.layer-row { position: relative; display: flex; flex-wrap: wrap; gap: 2px; align-items: center; border: 1px solid transparent; border-radius: 8px; min-height: 42px; }
 .layer-row.selected { background: #edf4ec; border-color: #c9d9c7; }
 .layer-row.selected::before { content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; background: #315c46; border-radius: 0 2px 2px 0; pointer-events: none; }
 .layer-row.dragging { opacity: .55; background: #dceadd; }
@@ -263,6 +263,9 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .layer-row .layer-visibility-button[aria-pressed='false'] { color: #a4afa6; }
 .layer-eye-slash { stroke: #b76f61; stroke-width: 2.5; }
 .layer-row .layer-menu-trigger { color: #607e6b; }
+.layer-opacity-control { display: grid; flex: 0 0 100%; min-width: 0; grid-template-columns: auto minmax(0, 1fr) 35px; gap: 7px; align-items: center; padding: 0 8px 8px; color: #607b69; font-size: 10px; }
+.layer-opacity-control input { min-width: 0; width: 100%; accent-color: #315c46; }
+.layer-opacity-control output { text-align: right; font-variant-numeric: tabular-nums; }
 .layer-actions-menu { position: fixed; z-index: 80; width: 196px; padding: 7px; box-sizing: border-box; background: #fff; border: 1px solid #d1e0d2; border-radius: 10px; box-shadow: 0 14px 36px #263a2f33, 0 2px 8px #263a2f1c; }
 .layer-actions-title { padding: 7px 10px 9px; color: #78887c; font-size: 11px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layer-actions-menu button { display: block; width: 100%; text-align: left; color: #2f4f3a; background: transparent; border: 0; border-radius: 6px; padding: 10px; cursor: pointer; font-size: 13px; }
@@ -289,6 +292,9 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .clear-dialog-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .clear-dialog-actions button { border-radius: 8px; border: 1px solid #d6e0d4; background: #fff; padding: 9px 13px; color: #34493d; cursor: pointer; }
 .clear-dialog-actions .clear-confirm-button { background: #a64c43; border-color: #a64c43; color: #fff; }
+.export-reference-option { display: flex; align-items: center; gap: 9px; color: #3c5745; font-size: 13px; margin: 0 0 20px; }
+.export-reference-option input { accent-color: #315c46; }
+.clear-dialog-actions .export-confirm-button { background: #315c46; border-color: #315c46; color: #fff; }
 .fullscreen-fallback-note { padding: 6px 14px; background: #fff5df; color: #795d35; font-size: 11px; margin: 0; }
 .studio-layout.focus-mode { position: fixed; inset: 0; z-index: 1000; }
 .studio-layout:is(:fullscreen, .focus-mode) { width: 100vw; height: 100dvh; max-height: 100dvh; padding: 10px; margin: 0; gap: 10px; grid-template-columns: minmax(0, 1fr) 240px; align-items: stretch; overflow: hidden; background: #ebefeb; }

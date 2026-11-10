@@ -40,7 +40,12 @@ test('слои можно переименовать, менять порядо�
   await page.getByRole('textbox', { name: 'Название слоя Слой 2' }).press('Enter');
   await expect(page.getByRole('button', { name: 'Чистовой · выбран' })).toBeVisible();
 
-  await page.getByRole('slider', { name: 'Непрозрачность слоя Чистовой' }).fill('35');
+  await page.getByRole('slider', { name: 'Непрозрачность слоя Чистовой' }).evaluate((element) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(element, '35');
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await expect(page.getByRole('slider', { name: 'Непрозрачность слоя Чистовой' })).toHaveValue('35');
   await page.getByRole('button', { name: 'Перетащить Чистовой' }).press('ArrowDown');
   await expect(page.locator('.layer-row').first()).toHaveAttribute('data-layer-id', /.+/);
@@ -55,4 +60,32 @@ test('слои можно переименовать, менять порядо�
   const canvas = page.getByRole('img', { name: 'Холст для рисования' });
   await canvas.click({ position: { x: 40, y: 40 } });
   await expect(page.getByText('Штрихов: 0')).toBeVisible();
+});
+
+test('экспорт PNG скачивается с нативным размером и не требует сохранения проекта', async ({ page }) => {
+  await openStudio(page);
+  await page.getByRole('button', { name: 'Экспортировать PNG' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Экспорт PNG' });
+  await expect(dialog).toContainText('1024 × 768');
+  await expect(dialog.getByRole('checkbox', { name: 'Включить эскиз-референс в PNG' })).toBeDisabled();
+  const downloadReady = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Скачать PNG' }).click();
+  const download = await downloadReady;
+  expect(download.suggestedFilename()).toMatch(/\.png$/);
+  await expect(dialog).toHaveCount(0);
+});
+
+test('новые инструменты доступны без горизонтальной прокрутки на трёх экранах', async ({ page }) => {
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 768, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await openStudio(page);
+    await expect(page.getByRole('button', { name: 'Пипетка' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Экспортировать PNG' })).toBeVisible();
+    if (viewport.width <= 850) {
+      await page.getByRole('button', { name: /Слои \(1\) · развернуть/ }).click();
+    }
+    await expect(page.getByRole('slider', { name: 'Непрозрачность слоя Слой 1' })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow, JSON.stringify(viewport)).toBeLessThanOrEqual(1);
+  }
 });

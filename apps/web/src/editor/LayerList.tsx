@@ -210,6 +210,18 @@ export function LayerList({ layers, activeLayerId, onAction }: LayerListProps) {
           >
             <ToolIcon name="grip" />
           </button>
+          {layer.id === activeLayerId && (
+            <label className="layer-opacity-control">
+              <span>Непрозрачность слоя</span>
+              <input type="range" min="0" max="100" step="1"
+                aria-label={`Непрозрачность слоя ${layer.name}`}
+                value={Math.round(layer.opacity * 100)}
+                onChange={(event) => onAction({
+                  type: 'setLayerOpacity', layerId: layer.id, opacity: Number(event.target.value) / 100,
+                })} />
+              <output>{Math.round(layer.opacity * 100)}%</output>
+            </label>
+          )}
         </div>
       ))}
       {openMenuId && (() => {
