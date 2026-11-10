@@ -5,6 +5,7 @@ import { applyAction, createProject } from './model';
 import { createProjectHistory } from './history';
 import { EditorCanvas } from './EditorCanvas';
 import { renderProject } from './render';
+import type { ToolAvailabilityContext } from './toolAccess';
 
 vi.mock('./render', () => ({ renderProject: vi.fn() }));
 afterEach(() => { cleanup(); vi.useRealTimers(); });
@@ -12,6 +13,95 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it('показывает иконку выделения только как рабочий инструмент профессионального режима', () => {
+    const history = createProjectHistory(createProject());
+    const learning: ToolAvailabilityContext = { mode: 'learning', permanentlyUnlockedToolIds: new Set(['ink']) };
+    const { rerender } = render(<EditorCanvas history={history}
+      onAction={() => {}} onUndo={() => {}} onRedo={() => {}} toolAccess={learning} />);
+    expect(screen.getByRole('button', { name: 'Выделение' }).hasAttribute('disabled')).toBe(true);
+    rerender(<EditorCanvas history={history} onAction={() => {}} onUndo={() => {}} onRedo={() => {}} />);
+    const button = screen.getByRole('button', { name: 'Выделение' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(button.textContent).toBe('');
+    expect(button.querySelector('svg')).not.toBeNull();
+  });
+
+  it('рамкой выбирает штрих и фигуру, переносит набор одним действием и показывает предварительный результат', () => {
+    const base = createProject();
+    const withStroke = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId,
+      stroke: { id: 'line-r2', kind: 'ink', brushId: 'pencil', color: '#112233', width: 5,
+        opacity: 1, points: [{ x: .1, y: .2 }, { x: .3, y: .2 }] } });
+    const withShape = applyAction(withStroke, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'rect-r2', kind: 'rectangle', from: { x: .6, y: .5 }, to: { x: .8, y: .7 },
+        color: '#112233', width: 3, opacity: 1, style: 'both' } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(withShape)} onAction={onAction}
+      onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Выделение' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 5, clientY: 5 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 350, clientY: 240 });
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].marquee).toBeTruthy();
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 350, clientY: 240 });
+    expect(screen.getByText('Выбрано: 2')).toBeTruthy();
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 275, clientY: 180 });
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 290, clientY: 185 });
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selectionFrame).toBeTruthy();
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.pointerUp(canvas, { pointerId: 2, clientX: 290, clientY: 185 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'transformItems',
+      layerId: base.activeLayerId, ids: ['line-r2', 'rect-r2'], scaleX: 1, scaleY: 1 }));
+  });
+
+  it('масштабирует выделение за угловой маркер и отменяет жест по pointercancel', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'shape-r2', kind: 'rectangle', from: { x: .2, y: .2 }, to: { x: .5, y: .5 },
+        color: '#112233', width: 3, opacity: 1, style: 'both' } });
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction}
+      onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Выделение' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 140, clientY: 105 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 140, clientY: 105 });
+    fireEvent.pointerDown(canvas, { pointerId: 2, button: 0, clientX: 200, clientY: 150 });
+    fireEvent.pointerMove(canvas, { pointerId: 2, clientX: 240, clientY: 180 });
+    fireEvent.pointerCancel(canvas, { pointerId: 2 });
+    expect(onAction).not.toHaveBeenCalled();
+    fireEvent.pointerDown(canvas, { pointerId: 3, button: 0, clientX: 200, clientY: 150 });
+    fireEvent.pointerMove(canvas, { pointerId: 3, clientX: 240, clientY: 180 });
+    fireEvent.pointerUp(canvas, { pointerId: 3, clientX: 240, clientY: 180 });
+    expect(onAction).toHaveBeenCalledTimes(1);
+    expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'transformItems',
+      ids: ['shape-r2'], scaleX: expect.closeTo(1.333333, 5), scaleY: expect.closeTo(1.333333, 5) }));
+  });
+
+  it('не оставляет фиктивный выбор после Undo, удалившего выбранный объект', () => {
+    const base = createProject();
+    const withShape = applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'temporary-r2', kind: 'rectangle', from: { x: .2, y: .2 }, to: { x: .5, y: .5 },
+        color: '#112233', width: 3, opacity: 1, style: 'both' } });
+    const onAction = vi.fn();
+    const { rerender } = render(<EditorCanvas history={createProjectHistory(withShape)}
+      onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.click(screen.getByRole('button', { name: 'Выделение' }));
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 140, clientY: 105 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 140, clientY: 105 });
+    expect(screen.getByText('Выбрано: 1')).toBeTruthy();
+    rerender(<EditorCanvas history={createProjectHistory(base)} onAction={onAction}
+      onUndo={() => {}} onRedo={() => {}} />);
+    expect(screen.queryByText('Выбрано: 1')).toBeNull();
+    expect(vi.mocked(renderProject).mock.lastCall?.[3].selectionFrame).toBeUndefined();
+  });
   it('аварийный PNG рендерит весь документ без зума и рамки выделения', () => {
     const contexts = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D>();
     const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {

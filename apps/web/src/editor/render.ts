@@ -1,6 +1,7 @@
 import { getPaintOperations, type BucketFill, type DrawingProject, type PaintLayer, type ReferenceLayer, type Shape, type Stroke } from './model';
 import { paintBrushStroke } from './brushes';
 import { shapeBounds, shapeCorners } from './shapeGeometry';
+import type { SelectionBounds } from './selection';
 
 type Surface = HTMLCanvasElement | OffscreenCanvas;
 type SurfaceContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -21,6 +22,9 @@ export interface RenderOptions {
   /** Reuses the unmodified prefix before the actively edited shape. */
   shapePrefixCache?: WeakMap<PaintLayer, { shapeId: string; surface: Surface }>;
   selection?: { layerId: string; shapeId: string };
+  /** Transient multi-object editor overlay, never included in PNG/export. */
+  selectionFrame?: SelectionBounds;
+  marquee?: SelectionBounds;
 }
 
 function defaultSurface(width: number, height: number): Surface {
@@ -209,6 +213,28 @@ function paintSelection(
   context.restore();
 }
 
+function paintSelectionRectangle(context: CanvasRenderingContext2D, frame: SelectionBounds,
+  scale: number, width: number, height: number, handles: boolean): void {
+  const safeScale = Math.max(.001, scale);
+  context.save();
+  context.strokeStyle = '#17734c';
+  context.lineWidth = 1.5 / safeScale;
+  context.setLineDash([5 / safeScale, 4 / safeScale]);
+  context.strokeRect(frame.left * width, frame.top * height,
+    (frame.right - frame.left) * width, (frame.bottom - frame.top) * height);
+  context.setLineDash([]);
+  if (handles) {
+    for (const [x, y] of [[frame.left, frame.top], [frame.right, frame.top],
+      [frame.left, frame.bottom], [frame.right, frame.bottom]]) {
+      const side = 8 / safeScale;
+      context.fillStyle = '#FFFFFF';
+      context.fillRect(x * width - side / 2, y * height - side / 2, side, side);
+      context.strokeRect(x * width - side / 2, y * height - side / 2, side, side);
+    }
+  }
+  context.restore();
+}
+
 function paintReference(
   context: CanvasRenderingContext2D,
   layer: ReferenceLayer,
@@ -321,6 +347,14 @@ export function renderProject(
       paintSelection(context, options.previewShape?.shape.id === selected.shape.id
         ? options.previewShape.shape : selected.shape, options.zoom * cssScale, project.width, project.height);
     }
+  }
+  if (options.selectionFrame || options.marquee) {
+    const cssWidth = 'getBoundingClientRect' in canvas
+      ? (canvas as HTMLCanvasElement).getBoundingClientRect().width : 0;
+    const cssScale = cssWidth > 0 ? cssWidth / project.width : 1;
+    const scale = options.zoom * cssScale;
+    if (options.marquee) paintSelectionRectangle(context, options.marquee, scale, project.width, project.height, false);
+    if (options.selectionFrame) paintSelectionRectangle(context, options.selectionFrame, scale, project.width, project.height, true);
   }
   context.restore();
 }

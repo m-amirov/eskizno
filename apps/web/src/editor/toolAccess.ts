@@ -1,7 +1,7 @@
 import { commitAction, type ProjectHistory } from './history';
 import type { ProjectAction } from './model';
 
-export type EditorToolId = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper';
+export type EditorToolId = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper' | 'select';
 export type WorkspaceMode = 'professional' | 'learning';
 
 export interface ToolAvailabilityContext {
@@ -17,6 +17,7 @@ export const TOOL_REGISTRY: ReadonlyArray<{ id: EditorToolId; label: string }> =
   { id: 'fill', label: 'Заливка' },
   { id: 'shape', label: 'Фигуры' },
   { id: 'eyedropper', label: 'Пипетка' },
+  { id: 'select', label: 'Выделение' },
 ];
 
 export const PROFESSIONAL_TOOL_ACCESS: ToolAvailabilityContext = {
@@ -45,6 +46,7 @@ function requiredTool(action: ProjectAction): EditorToolId | null {
     case 'addFill': return 'fill';
     case 'addShape':
     case 'updateShape': return 'shape';
+    case 'transformItems': return 'select';
     default: return null;
   }
 }

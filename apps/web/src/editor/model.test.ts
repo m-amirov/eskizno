@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyAction, createProject, type Layer, type Stroke, type Shape } from './model';
+import { applyAction, createProject, parseDrawingProject, type Layer, type Stroke, type Shape } from './model';
+import { commitAction, createProjectHistory, redoAction, undoAction } from './history';
 
 const paintLayer = (id: string): Layer => ({
   id,
@@ -35,6 +36,47 @@ const stroke: Stroke = {
 };
 
 describe('модель рисунка', () => {
+  it('атомарно перемещает и масштабирует штрих и фигуру, сохраняя структуру v2 и Undo/Redo', () => {
+    const base = createProject();
+    const withStroke = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
+    const shape: Shape = { id: 'shape-selected', kind: 'rectangle', from: { x: .3, y: .5 },
+      to: { x: .4, y: .7 }, color: '#AABBCC', width: 4, style: 'outline', opacity: 1 };
+    const withShape = applyAction(withStroke, { type: 'addShape', layerId: base.activeLayerId, shape });
+    const action = { type: 'transformItems' as const, layerId: base.activeLayerId,
+      ids: ['ink-1', 'shape-selected'], origin: { x: .1, y: .2 },
+      scaleX: 2, scaleY: .5, translateX: .1, translateY: .2 };
+    const history = commitAction(createProjectHistory(withShape), action);
+    expect(history.present.layers[0]).toMatchObject({
+      strokes: [{ id: 'ink-1', width: 8, points: [{ x: .2, y: .4 }, { x: .6, y: .5 }] }],
+      operations: [{ type: 'stroke', strokeId: 'ink-1' },
+        { type: 'shape', shape: { id: 'shape-selected', width: 4,
+          from: { x: .6, y: .55 }, to: { x: .8, y: .65 } } }],
+    });
+    expect(history.present.schemaVersion).toBe(2);
+    expect(parseDrawingProject(history.present)).not.toBeNull();
+    expect(undoAction(history).present).toEqual(withShape);
+    expect(redoAction(undoAction(history)).present).toEqual(history.present);
+    expect(withShape.layers[0]).toMatchObject({ strokes: [{ points: stroke.points }] });
+  });
+
+  it('отклоняет целиком трансформацию с неверным ID, точкой вне холста или заблокированным слоем', () => {
+    const base = createProject();
+    const project = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
+    const command = { type: 'transformItems' as const, layerId: base.activeLayerId,
+      ids: ['ink-1'], origin: { x: 0, y: 0 }, scaleX: 1,
+      scaleY: 1, translateX: .2, translateY: 0 };
+    expect(applyAction(project, { ...command, ids: ['ink-1', 'not-found'] })).toBe(project);
+    expect(applyAction(project, { ...command, translateX: .9 })).toBe(project);
+    expect(applyAction(project, { ...command, scaleX: Number.NaN })).toBe(project);
+    expect(applyAction(project, { ...command, ids: ['ink-1', 'ink-1'] })).toBe(project);
+    expect(applyAction(project, { ...command, translateX: 0 })).toBe(project);
+    for (const kind of ['setLayerLock', 'setLayerVisibility'] as const) {
+      const protectedProject = kind === 'setLayerLock'
+        ? applyAction(project, { type: kind, layerId: base.activeLayerId, locked: true })
+        : applyAction(project, { type: kind, layerId: base.activeLayerId, visible: false });
+      expect(applyAction(protectedProject, command)).toBe(protectedProject);
+    }
+  });
   it('продвижение шага урока — обратимое действие без смены схемы v2', () => {
     const lesson = createProject({ lesson: { id: 'line-confidence-v1', audience: 'adult', mode: 'construct', step: 0 } });
     const advanced = applyAction(lesson, { type: 'setLessonStep', step: 1 });
