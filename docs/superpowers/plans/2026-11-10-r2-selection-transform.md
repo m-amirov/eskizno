@@ -50,4 +50,4 @@
 - [x] Run focused Vitest and confirm failure for missing behavior.
 - [x] GREEN: wire selection gestures and transient render overlay; no independent history writes mid-drag.
 - [x] Add browser journey for selection and Undo; TS, full Vitest and build PASS; local Playwright blocked before scenario, CI pending.
-- [ ] Commit with documentation of actual gates, push feature branch and open Draft PR against R1; do not merge.
+- [x] Commit with documentation of actual gates, push feature branch and open Draft PR #17 against R1; CI #42 success, 32/32 browser scenarios; do not merge.

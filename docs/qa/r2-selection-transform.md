@@ -17,7 +17,7 @@
 | Vitest (полный набор) | PASS, `npm run test:unit`: **219/219**, 29 файлов, exit 0 |
 | Production build | PASS, `npm run build`: Vite 46 modules, exit 0 |
 | Playwright локально | NOT TESTED: браузер Playwright не установлен; системный `/usr/bin/chromium` при запуске в песочнице завершился с `socket() failed: Operation not permitted` до начала сценариев |
-| Playwright GitHub Actions | PENDING до успешного run для R2 (workflow включает R2 branch/base) |
+| Playwright GitHub Actions | **PASS, 32/32** (включая два R2 сценария), [run #42](https://github.com/m-amirov/eskizno/actions/runs/42787548428), `success`; TypeScript, 219/219 unit и сборка также прошли в CI |
 | Физический стилус/планшет, длинные сессии и 2048²+ | NOT TESTED — отдельный hardware/performance gate |
 
 ## Ограничения R2
