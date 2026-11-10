@@ -147,21 +147,21 @@
 
 **Interfaces:** `pickCompositedColor(ctx, point): string` возвращает `#RRGGBB`; `exportPng(project, assets, {includeReferences}: {includeReferences:boolean}): Promise<Blob>`; экспорт без UI/направляющих при 100% масштабе и нативном размере проекта.
 
-- [ ] **Step 1 — RED:** Browser test: выбрать произвольный цвет, извлечь пипеткой цвет пикселя, сохранить ограниченную палитру; изменить название/порядок/видимость/блокировку/прозрачность слоя; скрытый и заблокированный слой не редактируется.
-- [ ] **Step 2 — implementation:** Построить компактные панели palette/layers, доступные на планшете/телефоне и клавиатурой; добавить выбор цвета (цветовой круг или HSV-регуляторы, не только три фиксированных цвета), историю/набор цветов, пипетку итогового композита без UI, настройки активного слоя. Сохранять палитру с проектом.
-- [ ] **Step 3 — verify:** `npm run test:e2e -- e2e/finish.spec.ts`; PASS для пунктов палитры/слоёв.
-- [ ] **Step 4 — RED:** Пиксельные экспортные тесты: PNG без референса не содержит его пиксели, опция включения добавляет референс, zoom не влияет на размер/координаты экспорта; PNG корректно читается.
-- [ ] **Step 5 — implementation + GREEN:** Использовать тот же `renderProject` в export с `{zoom:1, panX:0, panY:0}`, выполнить экспорт в Blob; `npm run test:unit` и `npm run test:e2e -- e2e/finish.spec.ts` — PASS.
-- [ ] **Step 6 — UX check:** Экраны 1280×800, 768×900, 390×844: нет горизонтальной прокрутки; холст доступен; панель слоёв сворачивается; выбранная кисть и размер ластика видны; у критических кнопок есть фокус/названия.
-- [ ] **Step 7 — commit:** `git add apps/web README.md && git commit -m "feat(eskizno): finish palette layers and png export"`.
+- [x] **Step 1 — RED:** `e2e/finish.spec.ts` зафиксировал пипетку и настройки слоёв до реализации; [GitHub Actions #16](https://github.com/m-amirov/eskizno/actions/runs/42758822476) — старые 23 E2E PASS, два новых FAIL из-за отсутствующих элементов «Пипетка» и «Непрозрачность слоя».
+- [x] **Step 2 — implementation:** Существующие HSV/HEX-палитра, история и сохранённые цвета дополнены пипеткой итогового композита без UI и ползунком непрозрачности выбранного слоя. Контроль видимости, блокировки, названия и порядка слоёв сохранён; скрытый/locked paint-слой не редактируется.
+- [x] **Step 3 — verify:** Все четыре сценария `e2e/finish.spec.ts` вошли в [GitHub Actions #20](https://github.com/m-amirov/eskizno/actions/runs/42759790915): 27/27 Chromium E2E PASS.
+- [x] **Step 4 — RED:** `export.test.ts` первоначально падал на отсутствующем модуле; проверяет декодирование PNG 64×64, прозрачность без референса, добавление наложенного референса и пиксели итогового paint-слоя. Масштаб отображения не передаётся в экспорт.
+- [x] **Step 5 — implementation + GREEN:** `exportPng` использует `renderProject` с `{zoom:1, panX:0, panY:0}` и Blob. Итог [GitHub Actions #20](https://github.com/m-amirov/eskizno/actions/runs/42759790915): 189/189 unit, typecheck, build, 27/27 Chromium E2E PASS.
+- [x] **Step 6 — automated UX check:** В Chromium проверены 1280×800, 768×900, 390×844: без горизонтальной прокрутки, видны холст/выбранная кисть/размер ластика, мобильные слои раскрываются, пипетка получает фокус. Физические устройства и визуальная ручная приёмка — **NOT TESTED**, остаются в интеграционных gates.
+- [x] **Step 7 — commit:** реализация, пиксельные регрессии, четыре E2E-сценария и обновлённый README закоммичены в отдельную ветку `feat/e1-7-finish`, Draft PR #14; merge не выполнялся.
 
 ## E1 integration/release gates
 
 Это отдельная приёмка после E1.7, а не автоматическое объявление релиза.
 
-- [ ] Установить зависимости с lockfile: `cd apps/web && npm ci`.
-- [ ] `npm run typecheck && npm run test:unit && npm run build && npm run test:e2e` — реальные результаты и номера выполненных сценариев, не PASS по описанию.
-- [ ] Регрессия старого v0.4: `cd ../../prototypes/stylus-editor-v1 && node --test core.test.mjs ink.test.mjs ui.test.mjs && node --check app.mjs`; пропущенные пиксельные тесты перечислить отдельно.
+- [x] Установить зависимости с lockfile: `cd apps/web && npm ci` — PASS на GitHub Actions runner #20.
+- [x] `npm run typecheck && npm run test:unit && npm run build && npm run test:e2e` — PASS на GitHub Actions runner #20: 189 unit и 27 E2E, включая 4 сценария E1.7.
+- [x] Регрессия старого v0.4: `cd prototypes/stylus-editor-v1 && node --test core.test.mjs ink.test.mjs ui.test.mjs && node --check app.mjs` — 13/13 PASS, syntax PASS локально.
 - [ ] Матрица устройств: мышь/Chromium; touch на планшете и телефоне; физический стилус на названной модели/браузере. Не проверенное пометить **NOT TESTED**, а не PASS.
 - [ ] Проверить 2–3 проекта с реальными референсами, локальную приватность загрузки, отзывчивость кистей, восстановление после перезагрузки, отказ IndexedDB, ограничения изображения, экспорт и редактирование слоёв.
 - [ ] Приёмка без публикации на площадках и без объявления готового продукта. При проблемах сохранить PR открытым и перечислить блокеры.
