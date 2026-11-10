@@ -231,6 +231,16 @@ test('при очень низком viewport инструменты и холс
     viewportHeight: window.innerHeight,
   }));
   expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.viewportHeight);
+  if (dimensions.scrollWidth > dimensions.viewportWidth + 1) {
+    const culprits = await page.evaluate(() => Array.from(document.querySelectorAll('body *'))
+      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.right > window.innerWidth + 1 && rect.width > 0)
+      .slice(0, 18)
+      .map(({ element, rect }) => ({ tag: element.tagName, classes: element.className,
+        width: Math.round(rect.width), left: Math.round(rect.left), right: Math.round(rect.right),
+        minWidth: getComputedStyle(element).minWidth, overflow: getComputedStyle(element).overflow })));
+    console.info('LOW_VIEWPORT_OVERFLOW_DIAGNOSTIC', JSON.stringify(culprits));
+  }
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
