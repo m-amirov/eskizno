@@ -18,7 +18,7 @@
 | Vitest (полный набор, после ревью) | PASS, `npm run test:unit`: **226/226**, 29 файлов, exit 0 |
 | Production build | PASS, `npm run build`: Vite 46 modules, exit 0 |
 | Playwright локально | BLOCKED до сценариев: bundled Chromium отсутствует; системный `/usr/bin/chromium` завершается `socket() failed: Operation not permitted` в ограничениях песочницы |
-| Playwright GitHub Actions | Предыдущий R2 commit: **PASS, 32/32** ([run #44](https://github.com/m-amirov/eskizno/actions/runs/42787875586)); текущий audit fix содержит новый браузерный регрессионный сценарий — **PENDING** до нового CI |
+| Playwright GitHub Actions | **PASS, 33/33** (включая новый сценарий переноса точечного штриха), [run #46](https://github.com/m-amirov/eskizno/actions/runs/42790568926), `success`; TypeScript, 226/226 unit и сборка также прошли в CI |
 | Perf regression (инструментальный тест и benchmark) | PASS: две последовательные трансформации после предшествующей заливки не запускают её повторно; результат сравнивается с полным рендером. В независимом 2048² native-canvas benchmark 12 кадров: фоновая заливка 1 раз вместо 12; тёплая медиана ~30,7 мс, но длинные кадры до 348 мс остаются риском |
 | Физический стилус/планшет, длинные сессии и 2048²+ | NOT TESTED — отдельный hardware/performance gate |
 
