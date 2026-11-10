@@ -219,6 +219,18 @@ test('при очень низком viewport инструменты и холс
   const canvas = page.getByRole('img', { name: 'Холст для рисования' });
   const footer = page.locator('.canvas-footer');
   expect((await canvas.boundingBox())?.width).toBeGreaterThan(150);
+  console.info('LOW_VIEWPORT_BEFORE_SCROLL', JSON.stringify(await page.evaluate(() => ({
+    scrollX: window.scrollX, documentScrollWidth: document.documentElement.scrollWidth,
+    elements: ['body', '.main-content', '.workspace-page', '.studio-artboard-layout', '.studio-layout',
+      '.studio-main', '.artboard-stage', '.drawing-canvas', '.canvas-footer', '.zoom-controls']
+      .map((selector) => {
+        const element = document.querySelector(selector);
+        const rect = element?.getBoundingClientRect();
+        return { selector, left: Math.round(rect?.left ?? 0), right: Math.round(rect?.right ?? 0),
+          width: Math.round(rect?.width ?? 0), scrollWidth: element?.scrollWidth,
+          minWidth: element ? getComputedStyle(element).minWidth : '' };
+      }),
+  }))));
   await footer.scrollIntoViewIfNeeded();
   const resetZoom = page.getByRole('button', { name: 'Сброс масштаба' });
   // On a short viewport the footer can wrap: test access by scrolling to the actual control.
