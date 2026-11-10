@@ -125,9 +125,7 @@
 - [x] **Step 2 — verify RED:** `npm run test:unit -- src/editor/persistence.test.ts`; FAIL до реализации.
 - [x] **Step 3 — implementation:** Реализовать асинхронное сохранение в IndexedDB атомарной транзакцией, debounce после изменённых состояний, идемпотентную миграцию через валидатор v1, UI состояния «Сохранение… / Сохранено / Не удалось сохранить», список проектов, открытие и подтверждённое удаление. Перенос v1 возможен только при доступности исходного `localStorage` в том же origin; при смене домена автоматический перенос не обещать.
 - [x] **Step 4 — GREEN:** `npm run test:unit -- src/editor/persistence.test.ts`; PASS (8/8). После ревью добавлены регрессии удаления мигрированного проекта, гонки Undo, сохранения пустой ревизии, повторного открытия базы, обновления превью и аварийного PNG.
-- [ ] **Step 5 — browser gate:** В `e2e/persistence.spec.ts` создать проект, нарисовать на двух слоях, перезагрузить, открыть из галереи и сравнить данные/пиксели; вызвать отказ IndexedDB и проверить отсутствие ложного индикатора сохранения. `npm run test:e2e -- e2e/persistence.spec.ts` — PASS.
-
-  **Блокер E1.5:** E2E-сценарии написаны, но в данном executor Chromium не стартует: системный `/usr/bin/chromium` завершается с `socket() failed: Operation not permitted (1)`; Playwright-bundled Chromium отсутствует. Gate не пройден, PR остаётся Draft.
+- [x] **Step 5 — browser gate:** `e2e/persistence.spec.ts` проверяет восстановление слоёв/пикселей после reload и из галереи, отказ IndexedDB и миграцию v1. Три сценария вошли в успешный [GitHub Actions E1 browser gate #12](https://github.com/m-amirov/eskizno/actions/runs/42758320225): Chromium 23/23 E2E, 186/186 unit, typecheck и build PASS. Локальный Chromium по-прежнему не запускается в executor; проверка выполнена на GitHub runner.
 - [x] **Step 6 — commit:** `git add apps/web && git commit -m "feat(eskizno): persist local layered projects"`. Коммит подготовлен отдельно от `main`; browser gate (Step 5) остаётся открытым.
 
 ## Task E1.6: Режимы свободной студии и собственный эскиз
@@ -140,10 +138,8 @@
 - [x] **Step 2 — verify RED:** `npm run test:unit -- src/editor/import-image.test.ts`; зафиксировано отсутствие модуля до реализации.
 - [x] **Step 3 — implementation:** Проверка декодирования и размеров; освобождение ресурса; две позиции reference-слоя с отдельным paint-слоем; три входа из студии; Blob в IndexedDB.
 - [x] **Step 4 — GREEN:** `import-image.test.ts` — 8/8, включая `Image.decode` fallback; добавлены тесты режимов референса, параметров, восстановления, полноэкранного режима, поведения диалога и гонок сохранения при создании нового холста/импорте. Полный прогон: 186/186 unit (22 файла), TypeScript и build PASS; 13/13 проверок исходного прототипа PASS.
-- [ ] **Step 5 — browser gate:** `e2e/studio.spec.ts`: открыть каждый из 3 входов; импортировать файл; изменить opacity/позицию/масштаб/поворот референса без потери пропорций; нарисовать поверх; стереть участок; скрыть референс по «Показать без эскиза»; reload восстанавливает референс; импорт битого файла сохраняет старый проект.
-
-  **Блокер E1.6:** два Playwright-сценария обнаружены, но bundled Chromium отсутствует, а системный `/usr/bin/chromium` аварийно завершает старт с `socket() failed: Operation not permitted (1)`; поэтому ни один сценарий не прошёл browser gate. Работа остаётся в отдельной ветке и Draft PR, без merge.
-- [ ] **Step 6 — verify + commit:** unit, typecheck, build и prototype PASS; E2E проверка заблокирована окружением и остаётся обязательной до merge. Коммиты реализации и регрессионных исправлений подготовлены отдельно от `main`.
+- [x] **Step 5 — browser gate:** `e2e/studio.spec.ts` проверяет три входа, импорт, настройки референса, рисование и ластик, «Показать без эскиза», reload и отказ испорченного файла. Оба сценария вошли в успешный [GitHub Actions E1 browser gate #12](https://github.com/m-amirov/eskizno/actions/runs/42758320225); вместе с ними прошли 21 другая E2E-регрессия. В CI исправлен выявленный горизонтальный overflow при viewport 390×568.
+- [x] **Step 6 — verify + commit:** 186/186 unit, typecheck, build, 23/23 Chromium E2E PASS; регрессионные исправления закоммичены в `feat/e1-6-own-sketch`, Draft PR #13. Физический планшет и стилус **NOT TESTED**; интеграционные release gates и merge остаются отдельными этапами.
 
 ## Task E1.7: Палитра, слои, экспорт и UX-приёмка
 
