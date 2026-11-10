@@ -31,9 +31,9 @@
 
 **Interfaces:** `clampPreviewZoom(number): number` в 0.25…4; `zoomPreviewAt(view, nextZoom, point): View` с сохранением точки; `panPreview(view, dx, dy): View`; `resetPreview(): View`, `View = {zoom:number, panX:number,panY:number}`. Единицы pan — CSS px, не координаты документа.
 
-- [ ] RED: unit-тесты границ, якоря zoom, сброса и переноса; зафиксировать ожидаемое падение.
-- [ ] GREEN: минимальная реализация чистых функций, unit + typecheck PASS.
-- [ ] Зафиксировать отдельный коммит.
+- [x] RED: unit-тесты границ, якоря zoom, сброса и переноса; зафиксировано ожидаемое падение.
+- [x] GREEN: минимальная реализация чистых функций, unit + typecheck PASS.
+- [x] Зафиксировать отдельный коммит (`9afbba3`).
 
 ## Task 2: Preview zoom and gestures
 
@@ -41,9 +41,9 @@
 
 **Interfaces:** view state живёт внутри `ReferencePanel`, сбрасывается при `assetId`; кнопки `Увеличить референс`, `Уменьшить референс`, `Вписать референс`, slider `Масштаб просмотра референса`; preview region `Референс рядом с холстом`.
 
-- [ ] RED: E2E кнопка/ползунок/сброс/перемещение/колесо/pinch и запрет изменения документа; ожидаемо FAIL до реализации.
-- [ ] GREEN: zoom preview через CSS transform, pointer capture с Map по pointerId, wheel listener non-passive, панорамирование при zoom>1, reset при смене файла.
-- [ ] Typecheck, unit и Chromium E2E PASS, отдельный коммит.
+- [x] RED: E2E проверка кнопки/ползунка/сброса/перемещения/колеса и отсутствие изменения документа; ожидаемый FAIL на [CI #32](https://github.com/m-amirov/eskizno/actions/runs/42765527222). Pinch добавлен в тот же сценарий перед GREEN-прогоном.
+- [x] GREEN: zoom preview через CSS transform, pointer capture с Map по pointerId, wheel listener non-passive, панорамирование при zoom>1, reset при смене файла.
+- [x] Typecheck и unit PASS (194/194), первый Chromium E2E zoom + pinch PASS на [CI #34](https://github.com/m-amirov/eskizno/actions/runs/42766636082). Коммит `556e643`; общий browser gate требует исправления утверждения в layout-тесте.
 
 ## Task 3: Resizable layout and responsive acceptance
 
@@ -51,7 +51,7 @@
 
 **Interfaces:** `studio-reference-layout` с переменной шириной панели; `role="separator"` и стрелки клавиатуры; на <=1120 px вертикальная компоновка, ref перед холстом и кнопка `Свернуть референс`.
 
-- [ ] RED: E2E размеры на 1280×800, изменение ширины мышью/клавиатурой, порядок/коллапс на 820×1180 и 390×844, fullscreen.
-- [ ] GREEN: ограниченные доли колонок, preview занимает доступную площадь, портрет использует документную прокрутку.
+- [x] RED: E2E размеры на 1280×800 и изменение ширины мышью/клавиатурой; ожидаемый FAIL на CI #32. Портретные проверки дополняют сценарий.
+- [x] GREEN: ограниченные доли колонок, preview занимает доступную площадь, портрет использует документную прокрутку.
 - [ ] Full run: `npm run typecheck && npm run test:unit && npm run build && npm run test:e2e`, v0.4 regression; CI screenshots desktop/tablet/mobile и визуальная оценка.
 - [ ] Документация фактических PASS/NOT TESTED и отдельный Draft-коммит, без merge.

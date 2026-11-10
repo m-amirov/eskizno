@@ -187,7 +187,8 @@ test('боковая панель шире исходной, меняется р
     const canvas = page.getByRole('img', { name: 'Холст для рисования' });
     const referenceBox = await reference.boundingBox();
     const canvasBox = await canvas.boundingBox();
-    expect(referenceBox?.bottom).toBeLessThan(canvasBox?.y ?? 0);
+    if (!referenceBox || !canvasBox) throw new Error('Панель или холст недоступны');
+    expect(referenceBox.y + referenceBox.height).toBeLessThan(canvasBox.y);
     expect(referenceBox?.width).toBeGreaterThan(viewport.width <= 520 ? 330 : 700);
     await expect(divider).toBeHidden();
     await page.screenshot({ path: test.info().outputPath(`studio-side-reference-${viewport.width}x${viewport.height}.png`), fullPage: true });
