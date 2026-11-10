@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react';
 
 import { EditorCanvas } from '../editor/EditorCanvas';
 import type { ProjectHistory } from '../editor/history';
@@ -67,11 +67,25 @@ export function Studio({ history, assets, saveStatus, storageMessage, onAction, 
   const [sizeChoice, setSizeChoice] = useState<'canvas' | 'image'>('canvas');
   const [importError, setImportError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sideWidth, setSideWidth] = useState(35);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const sideLayoutRef = useRef<HTMLDivElement>(null);
+  const draggingDivider = useRef(false);
   const media = useReferenceMedia(assets);
   const reference = project.layers.find((layer): layer is ReferenceLayer => layer.kind === 'reference');
   const side = reference?.placement === 'side';
   const referenceFailed = !!reference && media.failed.has(reference.assetId);
+
+  const resizeSidePanel = (clientX: number) => {
+    const bounds = sideLayoutRef.current?.getBoundingClientRect();
+    if (!bounds?.width) return;
+    setSideWidth(Math.max(27, Math.min(45, (bounds.right - clientX) / bounds.width * 100)));
+  };
+
+  const endDividerDrag = (event: PointerEvent<HTMLDivElement>) => {
+    draggingDivider.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
 
   useEffect(() => { if (pending) dialogRef.current?.querySelector<HTMLButtonElement>('button')?.focus(); }, [pending]);
 
@@ -138,9 +152,26 @@ export function Studio({ history, assets, saveStatus, storageMessage, onAction, 
       {importError && <p className="import-error" role="alert">{importError}</p>}
       {referenceFailed && <p className="import-error" role="alert">Не удалось восстановить референс из хранилища. Рисунок доступен для редактирования.</p>}
       {reference && !side && <ReferencePanel layer={reference} url={media.urls.get(reference.assetId)} failed={referenceFailed} onAction={onAction} />}
-      <div className={side ? 'studio-reference-layout' : 'studio-artboard-layout'}>
+      <div ref={sideLayoutRef} className={side ? 'studio-reference-layout' : 'studio-artboard-layout'}
+        style={side ? { '--reference-pane-width': `${sideWidth}%` } as CSSProperties : undefined}>
         <EditorCanvas history={history} referenceImages={media.images} onAction={onAction} onUndo={onUndo} onRedo={onRedo}
           saveStatus={saveStatus} storageMessage={storageMessage} onRetry={onRetry} />
+        {side && <div className="reference-resize-handle" role="separator" aria-label="Размер области референса"
+          aria-orientation="vertical" aria-valuemin={27} aria-valuemax={45} aria-valuenow={Math.round(sideWidth)} tabIndex={0}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return;
+            draggingDivider.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => { if (draggingDivider.current) resizeSidePanel(event.clientX); }}
+          onPointerUp={endDividerDrag} onPointerCancel={endDividerDrag}
+          onLostPointerCapture={() => { draggingDivider.current = false; }}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              event.preventDefault();
+              setSideWidth((width) => Math.max(27, Math.min(45, width + (event.key === 'ArrowLeft' ? 2 : -2))));
+            }
+          }} />}
         {side && reference && <ReferencePanel layer={reference} url={media.urls.get(reference.assetId)} failed={referenceFailed} onAction={onAction} />}
       </div>
       {pending && (

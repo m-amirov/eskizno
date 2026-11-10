@@ -2,7 +2,7 @@ import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it, vi } from 'vitest';
 
 import { applyAction, createProject, type BrushId, type DrawingProject, type Stroke, type Shape } from './model';
-import { renderProject } from './render';
+import { pickCompositedColor, renderProject } from './render';
 import { sampleStrokePoints } from './brushes';
 
 const makeStroke = (
@@ -359,5 +359,22 @@ describe('пиксельный рендер независимых слоёв', 
     expect(zoomed.canvas.width).toBe(64);
     expect(pixel(normal, 37, 32)[3]).toBe(0);
     expect(pixel(zoomed, 37, 32)[3]).toBeGreaterThan(100);
+  });
+
+  it('пипетка учитывает порядок и opacity слоёв, но не параметры масштаба просмотра', () => {
+    const first = createProject({ width: 64, height: 64 });
+    const red = applyAction(first, { type: 'addFill', layerId: first.activeLayerId,
+      fill: { id: 'red', point: { x: .5, y: .5 }, color: '#FF0000' } });
+    const stacked = applyAction(red, { type: 'addLayer', layer: {
+      id: 'top', kind: 'paint', name: 'Полупрозрачный', strokes: [], visible: true, locked: false, opacity: .5,
+    } });
+    const blue = applyAction(stacked, { type: 'addFill', layerId: 'top',
+      fill: { id: 'blue', point: { x: .5, y: .5 }, color: '#0000FF' } });
+    const context = render(blue);
+    const [r, g, b] = pixel(context);
+    expect(pickCompositedColor(context as unknown as CanvasRenderingContext2D, { x: .5, y: .5 }))
+      .toBe(`#${[r, g, b].map((channel) => channel.toString(16).padStart(2, '0')).join('')}`.toUpperCase());
+    expect(pickCompositedColor(render(first) as unknown as CanvasRenderingContext2D, { x: .5, y: .5 }))
+      .toBe('#FFFFFF');
   });
 });

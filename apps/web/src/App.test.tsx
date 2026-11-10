@@ -210,7 +210,7 @@ describe('Эскизно — оболочка приложения', () => {
       fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: 'touch', clientX: 640, clientY: 384 });
       fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: 'touch', clientX: 270, clientY: 384 });
       expect(screen.getByText('Штрихов: 0')).toBeTruthy();
-      expect(screen.queryByText('100%')).toBeNull();
+      expect(document.querySelector('.zoom-controls > span')?.textContent).not.toBe('100%');
       fireEvent.pointerDown(canvas, { pointerId: 3, pointerType: 'touch', button: 0, clientX: 350, clientY: 384 });
       fireEvent.pointerUp(canvas, { pointerId: 3, pointerType: 'touch', clientX: 350, clientY: 384 });
       expect(screen.getByText('Штрихов: 1')).toBeTruthy();

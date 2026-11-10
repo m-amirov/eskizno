@@ -41,6 +41,15 @@ function layoutRows() {
 }
 
 describe('перетаскивание слоёв', () => {
+  it('меняет и отменяет прозрачность только выбранного слоя', () => {
+    render(<Harness />);
+    const opacity = screen.getByRole('slider', { name: 'Непрозрачность слоя Слой 1' });
+    fireEvent.change(opacity, { target: { value: '35' } });
+    expect((screen.getByRole('slider', { name: 'Непрозрачность слоя Слой 1' }) as HTMLInputElement).value).toBe('35');
+    fireEvent.click(screen.getByRole('button', { name: 'Отменить' }));
+    expect((screen.getByRole('slider', { name: 'Непрозрачность слоя Слой 1' }) as HTMLInputElement).value).toBe('100');
+    expect(screen.queryByRole('slider', { name: 'Непрозрачность слоя Верхний' })).toBeNull();
+  });
   it('показывает название активного слоя без лишнего слова и рисует иконки действий', () => {
     render(<Harness />);
     const selected = screen.getByRole('button', { name: 'Слой 1 · выбран' });
