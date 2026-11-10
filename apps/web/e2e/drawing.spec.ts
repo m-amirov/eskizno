@@ -219,18 +219,6 @@ test('при очень низком viewport инструменты и холс
   const canvas = page.getByRole('img', { name: 'Холст для рисования' });
   const footer = page.locator('.canvas-footer');
   expect((await canvas.boundingBox())?.width).toBeGreaterThan(150);
-  console.info('LOW_VIEWPORT_BEFORE_SCROLL', JSON.stringify(await page.evaluate(() => ({
-    scrollX: window.scrollX, documentScrollWidth: document.documentElement.scrollWidth,
-    elements: ['body', '.main-content', '.workspace-page', '.studio-artboard-layout', '.studio-layout',
-      '.studio-main', '.artboard-stage', '.drawing-canvas', '.canvas-footer', '.zoom-controls']
-      .map((selector) => {
-        const element = document.querySelector(selector);
-        const rect = element?.getBoundingClientRect();
-        return { selector, left: Math.round(rect?.left ?? 0), right: Math.round(rect?.right ?? 0),
-          width: Math.round(rect?.width ?? 0), scrollWidth: element?.scrollWidth,
-          minWidth: element ? getComputedStyle(element).minWidth : '' };
-      }),
-  }))));
   await footer.scrollIntoViewIfNeeded();
   const resetZoom = page.getByRole('button', { name: 'Сброс масштаба' });
   // On a short viewport the footer can wrap: test access by scrolling to the actual control.
@@ -243,16 +231,6 @@ test('при очень низком viewport инструменты и холс
     viewportHeight: window.innerHeight,
   }));
   expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.viewportHeight);
-  if (dimensions.scrollWidth > dimensions.viewportWidth + 1) {
-    const culprits = await page.evaluate(() => Array.from(document.querySelectorAll('body *'))
-      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.right > window.innerWidth + 1 && rect.width > 0)
-      .slice(0, 18)
-      .map(({ element, rect }) => ({ tag: element.tagName, classes: element.className,
-        width: Math.round(rect.width), left: Math.round(rect.left), right: Math.round(rect.right),
-        minWidth: getComputedStyle(element).minWidth, overflow: getComputedStyle(element).overflow })));
-    console.info('LOW_VIEWPORT_OVERFLOW_DIAGNOSTIC', JSON.stringify(culprits));
-  }
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth + 1);
 });
 
