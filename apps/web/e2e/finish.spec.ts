@@ -81,6 +81,11 @@ test('новые инструменты доступны без горизонт
     await openStudio(page);
     const canvas = page.getByRole('img', { name: 'Холст для рисования' });
     await expect(canvas).toBeVisible();
+    const canvasBounds = await canvas.boundingBox();
+    const minimumWidth = viewport.width <= 520 ? 250 : viewport.width <= 850 ? 380 : 300;
+    const minimumHeight = viewport.width <= 520 ? 180 : viewport.width <= 850 ? 260 : 220;
+    expect(canvasBounds?.width, `drawable width at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(minimumWidth);
+    expect(canvasBounds?.height, `drawable height at ${viewport.width}x${viewport.height}`).toBeGreaterThanOrEqual(minimumHeight);
     await expect(page.getByRole('button', { name: 'Кисти, выбран Карандаш' })).toBeVisible();
     await page.getByRole('button', { name: 'Ластик' }).click();
     await expect(page.getByRole('slider', { name: 'Толщина ластика' })).toBeVisible();
