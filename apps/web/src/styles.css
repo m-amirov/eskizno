@@ -177,6 +177,7 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .reference-zoom-controls output { flex: 0 0 39px; font-size: 12px; color: #4e6655; font-variant-numeric: tabular-nums; }
 .reference-zoom-controls > .reference-fit-button { font-size: 12px; padding: 5px 8px; }
 .import-error { margin: 0 0 12px; padding: 10px 12px; border-radius: 7px; color: #8b4a38; background: #fff0e6; font-size: 13px; }
+.import-status { margin: 0 0 12px; padding: 10px 12px; border-radius: 7px; color: #315c46; background: #eff5ef; font-size: 13px; }
 .import-dialog-backdrop { position: fixed; inset: 0; z-index: 1200; background: #15221a88; display: grid; place-items: center; padding: 20px; }
 .import-dialog { display: flex; flex-direction: column; gap: 12px; width: min(100%, 430px); padding: 24px; background: #fffdfa; color: #263c2d; border: 1px solid #d6e2d5; border-radius: 14px; box-shadow: 0 16px 55px #172c2033; }
 .import-dialog h3 { margin: 0; font-size: 20px; }

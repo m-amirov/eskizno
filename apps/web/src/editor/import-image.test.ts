@@ -30,6 +30,20 @@ describe('E1.6 — приватный импорт референса', () => {
     expect(vi.mocked(globalThis.createImageBitmap).mock.results).toHaveLength(1);
   });
 
+  it.each(['', 'application/octet-stream'])('импортирует PNG с MIME «%s» от Android-провайдера по сигнатуре', async (type) => {
+    const png = imageFile('image/png');
+    const supplied = new File([await png.arrayBuffer()], 'эскиз.png', { type });
+    const result = await importReference(supplied);
+    expect(result).toMatchObject({ width: 12, height: 8, mime: 'image/png' });
+    expect(result.blob).toBe(supplied);
+  });
+
+  it('не принимает неподдерживаемый файл с пустым MIME даже при расширении .png', async () => {
+    await expect(importReference(new File(['not a png'], 'фото.png', { type: '' })))
+      .rejects.toThrow(/PNG|JPEG|WebP/);
+    expect(globalThis.createImageBitmap).not.toHaveBeenCalled();
+  });
+
   it('отказывает неизвестному MIME без попытки декодирования', async () => {
     await expect(importReference(new File(['<svg/>'], 'bad.svg', { type: 'image/svg+xml' })))
       .rejects.toThrow(/PNG|JPEG|WebP/);
@@ -80,6 +94,34 @@ describe('E1.6 — приватный импорт референса', () => {
       expect((decoded.source as HTMLImageElement).src).toBe('blob:fallback');
       decoded.dispose();
       expect(revokeUrl).toHaveBeenCalledWith('blob:fallback');
+    } finally {
+      globalThis.Image = oldImage;
+      URL.createObjectURL = oldCreate;
+      URL.revokeObjectURL = oldRevoke;
+    }
+  });
+
+  it('пробует Image.decode, если createImageBitmap существует, но отклоняет файл', async () => {
+    globalThis.createImageBitmap = vi.fn().mockRejectedValue(new Error('bitmap unavailable')) as unknown as typeof createImageBitmap;
+    const oldImage = globalThis.Image;
+    const oldCreate = URL.createObjectURL;
+    const oldRevoke = URL.revokeObjectURL;
+    const decode = vi.fn().mockResolvedValue(undefined);
+    const revokeUrl = vi.fn();
+    globalThis.Image = class {
+      src = '';
+      naturalWidth = 12;
+      naturalHeight = 8;
+      decode = decode;
+    } as unknown as typeof Image;
+    URL.createObjectURL = vi.fn(() => 'blob:mobile-fallback');
+    URL.revokeObjectURL = revokeUrl;
+    try {
+      const image = await decodeLocalImage(imageFile('image/png'));
+      expect(image.width).toBe(12);
+      expect(decode).toHaveBeenCalledOnce();
+      image.dispose();
+      expect(revokeUrl).toHaveBeenCalledWith('blob:mobile-fallback');
     } finally {
       globalThis.Image = oldImage;
       URL.createObjectURL = oldCreate;

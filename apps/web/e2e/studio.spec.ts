@@ -105,6 +105,22 @@ test('испорченный файл не заменяет рисунок', asy
   await expect(page.getByRole('dialog', { name: 'Размер нового документа' })).toHaveCount(0);
 });
 
+test('планшет: касание кнопки открывает выбор файла и принимает изображение с общим MIME', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true, isMobile: true });
+  try {
+    const page = await context.newPage();
+    await goToStudio(page);
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser'),
+      page.getByText('Поверх эскиза', { exact: true }).tap(),
+    ]);
+    await chooser.setFiles({ ...upload, mimeType: 'application/octet-stream' });
+    await expect(page.getByRole('dialog', { name: 'Размер нового документа' })).toBeVisible();
+    await page.getByRole('button', { name: 'Создать с эскизом' }).tap();
+    await expect(page.getByRole('button', { name: 'Показать без эскиза' })).toBeVisible();
+  } finally { await context.close(); }
+});
+
 async function openSideReference(page: import('@playwright/test').Page) {
   await goToStudio(page);
   await page.getByLabel('Загрузить референс рядом').setInputFiles(upload);
