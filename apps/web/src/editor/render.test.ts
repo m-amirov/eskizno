@@ -157,6 +157,46 @@ describe('пиксельная заливка и геометрия', () => {
     expect(afterFirstPreview).toBeGreaterThan(0);
     expect(readCount).toBe(afterFirstPreview);
   });
+  it('не пересчитывает заливки перед выделенными объектами при покадровом переносе', () => {
+    const base = createProject({ width: 64, height: 64 });
+    const filled = applyAction(base, { type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: 'background', color: '#DDEEFF', point: { x: .5, y: .5 } } });
+    const shapeProject = applyAction(filled, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { ...shape, style: 'fill', color: '#FF0000' } });
+    const sourceLayer = shapeProject.layers[0];
+    if (sourceLayer.kind !== 'paint') throw new Error('paint layer required');
+    const canvas = createCanvas(64, 64);
+    let fillReadCount = 0;
+    const options = {
+      zoom: 1, panX: 0, panY: 0, includeReferences: true,
+      createSurface: (w: number, h: number) => {
+        const surface = createCanvas(w, h);
+        const context = surface.getContext('2d');
+        const original = context.getImageData.bind(context);
+        context.getImageData = ((...args: Parameters<typeof original>) => {
+          fillReadCount += 1;
+          return original(...args);
+        }) as typeof context.getImageData;
+        return surface as unknown as HTMLCanvasElement;
+      },
+      paintCache: new WeakMap(),
+      transformPrefixCache: new WeakMap(),
+      previewTransform: { layerId: base.activeLayerId, sourceLayer, ids: ['rectangle'] },
+    };
+    const ctx = canvas.getContext('2d') as unknown as CanvasRenderingContext2D;
+    const moved = (translateX: number) => applyAction(shapeProject, { type: 'transformItems',
+      layerId: base.activeLayerId, ids: ['rectangle'], origin: { x: .25, y: .25 },
+      scaleX: 1, scaleY: 1, translateX, translateY: 0 });
+    renderProject(ctx, moved(.1), new Map(), options);
+    const countAfterFirst = fillReadCount;
+    expect(countAfterFirst).toBeGreaterThan(0);
+    renderProject(ctx, moved(.2), new Map(), options);
+    expect(fillReadCount).toBe(countAfterFirst);
+    const expected = render(moved(.2));
+    for (const [x, y] of [[12, 32], [32, 32], [45, 32], [61, 61]]) {
+      expect(pixel(canvas.getContext('2d'), x, y)).toEqual(pixel(expected, x, y));
+    }
+  });
   it('не добавляет удалённую фигуру обратно в preview существующего объекта', () => {
     const base = createProject({ width: 64, height: 64 });
     const canvas = createCanvas(64, 64);

@@ -66,6 +66,7 @@ export function Studio({ history, assets, saveStatus, storageMessage, onAction, 
   const [pending, setPending] = useState<{ image: ImportedImage; placement: ReferenceLayer['placement'] } | null>(null);
   const [sizeChoice, setSizeChoice] = useState<'canvas' | 'image'>('canvas');
   const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sideWidth, setSideWidth] = useState(35);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -103,12 +104,15 @@ export function Studio({ history, assets, saveStatus, storageMessage, onAction, 
     event.currentTarget.value = '';
     if (!file) return;
     setImportError(null);
+    setImporting(true);
     try {
       const image = await importReference(file);
       setSizeChoice('canvas');
       setPending({ image, placement });
     } catch (error) {
       setImportError(error instanceof Error ? error.message : 'Не удалось импортировать изображение.');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -139,16 +143,17 @@ export function Studio({ history, assets, saveStatus, storageMessage, onAction, 
             if (!okay) setImportError('Не удалось создать холст: работа изменилась во время сохранения или хранилище недоступно.');
             else setImportError(null);
           }).finally(() => setBusy(false));
-        }} disabled={busy}>Новый холст</button>
+        }} disabled={busy || importing}>Новый холст</button>
         <label className="secondary-button studio-file-entry">Поверх эскиза
           <input type="file" aria-label="Загрузить эскиз для обводки" accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => { void chooseFile(event, 'overlay'); }} disabled={busy} />
+            onChange={(event) => { void chooseFile(event, 'overlay'); }} disabled={busy || importing} />
         </label>
         <label className="secondary-button studio-file-entry">Референс рядом
           <input type="file" aria-label="Загрузить референс рядом" accept="image/png,image/jpeg,image/webp"
-            onChange={(event) => { void chooseFile(event, 'side'); }} disabled={busy} />
+            onChange={(event) => { void chooseFile(event, 'side'); }} disabled={busy || importing} />
         </label>
       </div>
+      {importing && <p className="import-status" role="status" aria-live="polite">Загружаем изображение…</p>}
       {importError && <p className="import-error" role="alert">{importError}</p>}
       {referenceFailed && <p className="import-error" role="alert">Не удалось восстановить референс из хранилища. Рисунок доступен для редактирования.</p>}
       {reference && !side && <ReferencePanel layer={reference} url={media.urls.get(reference.assetId)} failed={referenceFailed} onAction={onAction} />}

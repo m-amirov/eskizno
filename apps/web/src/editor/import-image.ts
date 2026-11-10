@@ -18,12 +18,25 @@ export interface DecodedLocalImage {
   dispose: () => void;
 }
 
+/** Android document providers may omit File.type. Validate the bytes rather than the filename. */
+async function detectedMime(file: File): Promise<ImportedImage['mime'] | null> {
+  if (ALLOWED_MIME.includes(file.type as ImportedImage['mime'])) return file.type as ImportedImage['mime'];
+  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  if (bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, i) => bytes[i] === byte)) return 'image/png';
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return 'image/jpeg';
+  if (bytes.length >= 12 && [82, 73, 70, 70].every((byte, i) => bytes[i] === byte)
+    && [87, 69, 66, 80].every((byte, i) => bytes[i + 8] === byte)) return 'image/webp';
+  return null;
+}
+
 /** Share the bitmap/Safari decoder with both validation and the studio renderer. */
 export async function decodeLocalImage(image: Blob): Promise<DecodedLocalImage> {
   if (typeof createImageBitmap === 'function') {
-    const bitmap = await createImageBitmap(image);
-    return { source: bitmap, width: bitmap.width, height: bitmap.height,
-      dispose: () => bitmap.close() };
+    try {
+      const bitmap = await createImageBitmap(image);
+      return { source: bitmap, width: bitmap.width, height: bitmap.height,
+        dispose: () => bitmap.close() };
+    } catch { /* Some mobile engines expose ImageBitmap but reject valid images. Try Image.decode. */ }
   }
 
   // Keep the object URL alive until the image is no longer used for drawing.
@@ -41,11 +54,10 @@ export async function decodeLocalImage(image: Blob): Promise<DecodedLocalImage> 
 }
 
 export async function importReference(file: File): Promise<ImportedImage> {
-  if (!ALLOWED_MIME.includes(file.type as ImportedImage['mime'])) {
-    throw new Error('Выберите изображение PNG, JPEG или WebP.');
-  }
   if (file.size === 0) throw new Error('Файл пуст. Выберите другое изображение.');
   if (file.size > MAX_FILE_BYTES) throw new Error('Файл больше 10 МБ. Уменьшите его перед импортом.');
+  const mime = await detectedMime(file);
+  if (!mime) throw new Error('Выберите изображение PNG, JPEG или WebP.');
   let size: { width: number; height: number };
   try {
     const decoded = await decodeLocalImage(file);
@@ -63,5 +75,5 @@ export async function importReference(file: File): Promise<ImportedImage> {
   if (width * height > MAX_PIXELS) {
     throw new Error('Изображение не должно превышать 16 Мп.');
   }
-  return { blob: file, width, height, mime: file.type as ImportedImage['mime'] };
+  return { blob: file, width, height, mime };
 }

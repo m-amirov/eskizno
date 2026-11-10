@@ -1,6 +1,7 @@
 import { getPaintOperations, type BucketFill, type DrawingProject, type PaintLayer, type ReferenceLayer, type Shape, type Stroke } from './model';
 import { paintBrushStroke } from './brushes';
 import { shapeBounds, shapeCorners } from './shapeGeometry';
+import type { SelectionBounds } from './selection';
 
 type Surface = HTMLCanvasElement | OffscreenCanvas;
 type SurfaceContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -20,7 +21,13 @@ export interface RenderOptions {
   previewShape?: { layerId: string; shape: Shape; existing?: boolean };
   /** Reuses the unmodified prefix before the actively edited shape. */
   shapePrefixCache?: WeakMap<PaintLayer, { shapeId: string; surface: Surface }>;
+  /** A draft transformation retains an immutable source layer to reuse its unchanged prefix. */
+  previewTransform?: { layerId: string; sourceLayer: PaintLayer; ids: readonly string[] };
+  transformPrefixCache?: WeakMap<PaintLayer, { firstChangedIndex: number; surface: Surface }>;
   selection?: { layerId: string; shapeId: string };
+  /** Transient multi-object editor overlay, never included in PNG/export. */
+  selectionFrame?: SelectionBounds;
+  marquee?: SelectionBounds;
 }
 
 function defaultSurface(width: number, height: number): Surface {
@@ -209,6 +216,28 @@ function paintSelection(
   context.restore();
 }
 
+function paintSelectionRectangle(context: CanvasRenderingContext2D, frame: SelectionBounds,
+  scale: number, width: number, height: number, handles: boolean): void {
+  const safeScale = Math.max(.001, scale);
+  context.save();
+  context.strokeStyle = '#17734c';
+  context.lineWidth = 1.5 / safeScale;
+  context.setLineDash([5 / safeScale, 4 / safeScale]);
+  context.strokeRect(frame.left * width, frame.top * height,
+    (frame.right - frame.left) * width, (frame.bottom - frame.top) * height);
+  context.setLineDash([]);
+  if (handles) {
+    for (const [x, y] of [[frame.left, frame.top], [frame.right, frame.top],
+      [frame.left, frame.bottom], [frame.right, frame.bottom]]) {
+      const side = 8 / safeScale;
+      context.fillStyle = '#FFFFFF';
+      context.fillRect(x * width - side / 2, y * height - side / 2, side, side);
+      context.strokeRect(x * width - side / 2, y * height - side / 2, side, side);
+    }
+  }
+  context.restore();
+}
+
 function paintReference(
   context: CanvasRenderingContext2D,
   layer: ReferenceLayer,
@@ -265,6 +294,27 @@ export function renderProject(
     }
 
     let surface = options.paintCache?.get(layer);
+    const draft = options.previewTransform?.layerId === layer.id ? options.previewTransform : null;
+    if (!surface && draft && draft.sourceLayer !== layer) {
+      const wanted = new Set(draft.ids);
+      const firstChangedIndex = getPaintOperations(draft.sourceLayer).findIndex((operation) =>
+        (operation.type === 'shape' && wanted.has(operation.shape.id))
+        || (operation.type === 'stroke' && wanted.has(operation.strokeId)));
+      if (firstChangedIndex >= 0) {
+        let prefix = options.transformPrefixCache?.get(draft.sourceLayer);
+        if (!prefix || prefix.firstChangedIndex !== firstChangedIndex) {
+          const prefixSurface = createSurface(project.width, project.height);
+          paintLayerContents(surfaceContext(prefixSurface), draft.sourceLayer,
+            project.width, project.height, 0, firstChangedIndex);
+          prefix = { firstChangedIndex, surface: prefixSurface };
+          options.transformPrefixCache?.set(draft.sourceLayer, prefix);
+        }
+        surface = createSurface(project.width, project.height);
+        const draftContext = surfaceContext(surface);
+        draftContext.drawImage(prefix.surface, 0, 0);
+        paintLayerContents(draftContext, layer, project.width, project.height, firstChangedIndex);
+      }
+    }
     if (!surface) {
       surface = createSurface(project.width, project.height);
       const paintContext = surfaceContext(surface);
@@ -321,6 +371,14 @@ export function renderProject(
       paintSelection(context, options.previewShape?.shape.id === selected.shape.id
         ? options.previewShape.shape : selected.shape, options.zoom * cssScale, project.width, project.height);
     }
+  }
+  if (options.selectionFrame || options.marquee) {
+    const cssWidth = 'getBoundingClientRect' in canvas
+      ? (canvas as HTMLCanvasElement).getBoundingClientRect().width : 0;
+    const cssScale = cssWidth > 0 ? cssWidth / project.width : 1;
+    const scale = options.zoom * cssScale;
+    if (options.marquee) paintSelectionRectangle(context, options.marquee, scale, project.width, project.height, false);
+    if (options.selectionFrame) paintSelectionRectangle(context, options.selectionFrame, scale, project.width, project.height, true);
   }
   context.restore();
 }

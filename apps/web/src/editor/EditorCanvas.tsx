@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent 
 
 import { clientToNormalized, INITIAL_VIEW, normalizedWheelDelta, pinchView, screenToArtboard, wheelZoom, zoomView, type ViewState } from './geometry';
 import type { ProjectHistory } from './history';
-import { getPaintOperations, getShapes, MAX_LAYERS, type BrushId, type PaintLayer, type Point, type ProjectAction, type Shape, type ShapeKind, type ShapeStyle, type Stroke } from './model';
+import { applyAction, getPaintOperations, getShapes, MAX_LAYERS, type BrushId, type PaintLayer, type Point, type ProjectAction, type Shape, type ShapeKind, type ShapeStyle, type Stroke } from './model';
 import { pickCompositedColor, renderProject } from './render';
 import { hitTestShape, moveShape, resizeShape, shapeHandleAt, type ShapeHandle } from './shapeGeometry';
 import { PalettePopover } from './PalettePopover';
@@ -15,8 +15,11 @@ import { normalizeToolSettings } from './brushes';
 import { exportPng } from './export';
 import type { SaveStatus } from '../studio/useLocalProjects';
 import { isToolAvailable, PROFESSIONAL_TOOL_ACCESS, type ToolAvailabilityContext } from './toolAccess';
+import { handleAt, handleFrame, hitTestSelectable, itemsInMarquee, moveSelectionFrame, normalizeFrame,
+  resizeSelectionDrag, selectionBounds, transformationForFrame, type SelectionBounds,
+  type SelectionTransform } from './selection';
 
-type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper';
+type Tool = 'ink' | 'erase' | 'fill' | 'shape' | 'eyedropper' | 'select';
 type StrokeGesture = { kind: 'stroke'; pointerId: number; layerId: string; stroke: Stroke };
 type FillGesture = { kind: 'fill'; pointerId: number; layerId: string; point: Point };
 type ShapeGesture = { kind: 'shape'; pointerId: number; layerId: string; shape: Shape };
@@ -25,7 +28,10 @@ type EditGesture = { kind: 'edit'; pointerId: number; layerId: string; shapeId: 
 type PendingGesture = { kind: 'pending'; pointerId: number; layerId: string; shape: Shape;
   start: Point; points: Point[]; strokeSnapshot: Stroke;
   clientX: number; clientY: number; timer: ReturnType<typeof setTimeout> };
-type Gesture = StrokeGesture | FillGesture | ShapeGesture | EditGesture | PendingGesture;
+type MarqueeGesture = { kind: 'marquee'; pointerId: number; layerId: string; start: Point };
+type TransformGesture = { kind: 'transform'; pointerId: number; layerId: string;
+  start: Point; frame: SelectionBounds; ids: string[]; handle: ShapeHandle | 'move' };
+type Gesture = StrokeGesture | FillGesture | ShapeGesture | EditGesture | PendingGesture | MarqueeGesture | TransformGesture;
 const SHAPE_HOLD_MS = 500;
 const DRAW_MOVEMENT_THRESHOLD_PX = 8;
 
@@ -87,9 +93,13 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const penPointer = useRef<number | null>(null);
   const paintCache = useRef(new WeakMap<PaintLayer, HTMLCanvasElement | OffscreenCanvas>());
   const shapePrefixCache = useRef(new WeakMap<PaintLayer, { shapeId: string; surface: HTMLCanvasElement | OffscreenCanvas }>());
+  const transformPrefixCache = useRef(new WeakMap<PaintLayer, { firstChangedIndex: number; surface: HTMLCanvasElement | OffscreenCanvas }>());
   const [preview, setPreview] = useState<Stroke | null>(null);
   const [previewShape, setPreviewShape] = useState<Shape | null>(null);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [marquee, setMarquee] = useState<SelectionBounds | null>(null);
+  const [transformPreview, setTransformPreview] = useState<({ layerId: string; ids: string[] } & SelectionTransform) | null>(null);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
   const [tool, setTool] = useState<Tool>('ink');
   const canUseTool = (candidate: Tool) => isToolAvailable(candidate, toolAccess);
@@ -157,19 +167,30 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
     if (!canvas) return;
     const context = canvas.getContext('2d');
     if (!context) return;
-    renderProject(context, project, referenceImages ?? new Map(), {
+    const displayedProject = transformPreview ? applyAction(project, { type: 'transformItems',
+      ...transformPreview }) : project;
+    const selectedLayer = displayedProject.layers.find((layer) => layer.id === project.activeLayerId);
+    const bounds = selectedLayer?.kind === 'paint' && selectedLayer.visible && !selectedLayer.locked
+      && tool === 'select' ? selectionBounds(selectedLayer, selectedIds) : null;
+    renderProject(context, displayedProject, referenceImages ?? new Map(), {
       ...view,
       includeReferences: true,
       paintCache: paintCache.current,
       shapePrefixCache: shapePrefixCache.current,
+      transformPrefixCache: transformPrefixCache.current,
+      ...(transformPreview && active?.kind === 'paint' ? { previewTransform: {
+        layerId: active.id, sourceLayer: active, ids: transformPreview.ids,
+      } } : {}),
       ...(preview && gesture.current ? { preview: { layerId: gesture.current.layerId, stroke: preview } } : {}),
       ...(previewShape && gesture.current ? { previewShape: {
         layerId: gesture.current.layerId, shape: previewShape, existing: gesture.current.kind === 'edit',
       } } : {}),
       ...(selectedShape && active?.kind === 'paint'
         ? { selection: { layerId: active.id, shapeId: selectedShape.id } } : {}),
+      ...(bounds ? { selectionFrame: handleFrame(bounds) } : {}),
+      ...(marquee ? { marquee } : {}),
     });
-  }, [project, referenceImages, preview, previewShape, view, selectedShapeId, tool]);
+  }, [project, referenceImages, preview, previewShape, view, selectedShapeId, selectedIds, marquee, transformPreview, tool]);
 
   // Undo, layer deletion, lock toggles and tool switches invalidate an in-progress gesture.
   useEffect(() => {
@@ -178,6 +199,8 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
+      setMarquee(null);
+      setTransformPreview(null);
       touchPointers.current.clear();
       pinchPrevious.current = null;
       penPointer.current = null;
@@ -189,9 +212,26 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
+      setMarquee(null);
+      setTransformPreview(null);
       penPointer.current = null;
     }
   }, [tool]);
+
+  useEffect(() => { setSelectedIds([]); setMarquee(null); setTransformPreview(null); }, [project.id, project.activeLayerId]);
+
+  useEffect(() => {
+    if (!selectedIds.length) return;
+    const layer = project.layers.find((entry) => entry.id === project.activeLayerId);
+    if (layer?.kind !== 'paint' || layer.locked || !layer.visible) {
+      setSelectedIds([]);
+      return;
+    }
+    const existing = new Set([...layer.strokes.map((entry) => entry.id),
+      ...getShapes(layer).map((entry) => entry.id)]);
+    const valid = selectedIds.filter((id) => existing.has(id));
+    if (valid.length !== selectedIds.length) setSelectedIds(valid);
+  }, [project, selectedIds]);
 
   useEffect(() => {
     if (!canUseTool(tool)) {
@@ -199,6 +239,9 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       gesture.current = null;
       setPreview(null);
       setPreviewShape(null);
+      setMarquee(null);
+      setTransformPreview(null);
+      setSelectedIds([]);
       setTool('ink');
     }
   }, [toolAccess, tool]);
@@ -386,6 +429,34 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
     if (event.pointerType === 'pen') penPointer.current = pointerId;
     gestureProject.current = project;
     if (active?.kind === 'paint') {
+      if (tool === 'select') {
+        const rect = event.currentTarget.getBoundingClientRect();
+        const scale = Math.max(.001, rect.width / project.width * view.zoom);
+        const bounds = selectionBounds(active, selectedIds);
+        const frame = bounds ? handleFrame(bounds) : null;
+        const selectedHandle = frame ? handleAt(frame, point, project.width, project.height, scale) : null;
+        if (frame && selectedHandle) {
+          gesture.current = { kind: 'transform', pointerId, layerId: active.id,
+            start: point, frame, ids: [...selectedIds], handle: selectedHandle };
+        } else {
+          const hit = hitTestSelectable(active, point, project.width, project.height, scale);
+          if (hit) {
+            const ids = selectedIds.includes(hit) ? selectedIds : [hit];
+            const nextBounds = selectionBounds(active, ids);
+            setSelectedIds(ids);
+            gesture.current = { kind: 'transform', pointerId, layerId: active.id,
+              start: point, frame: handleFrame(nextBounds!), ids: [...ids], handle: 'move' };
+          } else {
+            setSelectedIds([]);
+            const next = normalizeFrame(point, point);
+            setMarquee(next);
+            gesture.current = { kind: 'marquee', pointerId, layerId: active.id, start: point };
+          }
+        }
+        setSelectedShapeId(null);
+        event.currentTarget.setPointerCapture?.(pointerId);
+        return;
+      }
       const shapes = getShapes(active);
       const rect = event.currentTarget.getBoundingClientRect();
       const scale = Math.max(.001, rect.width / project.width * view.zoom);
@@ -441,6 +512,19 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
     if (!gesture.current || gesture.current.pointerId !== (event.pointerId ?? 1)) return;
     const point = pointerPoint(event);
     if (!point) return;
+    if (gesture.current.kind === 'marquee') {
+      setMarquee(normalizeFrame(gesture.current.start, point));
+      return;
+    }
+    if (gesture.current.kind === 'transform') {
+      const current = gesture.current;
+      const next = current.handle === 'move'
+        ? moveSelectionFrame(current.frame, { x: point.x - current.start.x, y: point.y - current.start.y })
+        : resizeSelectionDrag(current.frame, current.handle, current.start, point);
+      setTransformPreview({ layerId: current.layerId, ids: current.ids,
+        ...transformationForFrame(current.frame, next) });
+      return;
+    }
     if (gesture.current.kind === 'pending') {
       const current = gesture.current;
       current.points = appendDistinctPoints(current.points, pointerSamples(event));
@@ -471,6 +555,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
       setPreviewShape(updated);
       return;
     }
+    if (gesture.current.kind !== 'stroke') return;
     const points = appendDistinctPoints(gesture.current.stroke.points, pointerSamples(event));
     if (points.length === gesture.current.stroke.points.length) return;
     gesture.current.stroke = { ...gesture.current.stroke, points };
@@ -501,10 +586,26 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
     gesture.current = null;
     setPreview(null);
     setPreviewShape(null);
+    setMarquee(null);
+    setTransformPreview(null);
     if (event.currentTarget.hasPointerCapture?.(current.pointerId)) {
       event.currentTarget.releasePointerCapture(current.pointerId);
     }
-    if (committed.kind === 'fill') {
+    if (committed.kind === 'marquee') {
+      const layer = project.layers.find((entry) => entry.id === committed.layerId);
+      if (layer?.kind === 'paint' && end) setSelectedIds(itemsInMarquee(layer, normalizeFrame(committed.start, end)));
+    } else if (committed.kind === 'transform') {
+      if (end) {
+        const frame = committed.handle === 'move'
+          ? moveSelectionFrame(committed.frame, { x: end.x - committed.start.x, y: end.y - committed.start.y })
+          : resizeSelectionDrag(committed.frame, committed.handle, committed.start, end);
+        const transform = transformationForFrame(committed.frame, frame);
+        if (transform.scaleX !== 1 || transform.scaleY !== 1
+          || transform.translateX !== 0 || transform.translateY !== 0) {
+          onAction({ type: 'transformItems', layerId: committed.layerId, ids: committed.ids, ...transform });
+        }
+      }
+    } else if (committed.kind === 'fill') {
       if (end) onAction({ type: 'addFill', layerId: committed.layerId,
         fill: { id: newId(), point: committed.point, color } });
     } else if (committed.kind === 'shape') {
@@ -539,6 +640,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
   const cancelStroke = () => {
     if (gesture.current?.kind === 'pending') clearTimeout(gesture.current.timer);
     gesture.current = null; setPreview(null); setPreviewShape(null);
+    setMarquee(null); setTransformPreview(null);
     penPointer.current = null;
   };
   const cancelPointer = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -576,6 +678,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
             <button type="button" className={tool === 'erase' ? 'tool-active' : ''} aria-label="Ластик" title={canUseTool('erase') ? 'Ластик' : 'Откроется после урока'} disabled={!canUseTool('erase')} aria-pressed={tool === 'erase'} onClick={() => setTool('erase')}><ToolIcon name="eraser" /></button>
             <button type="button" className={tool === 'fill' ? 'tool-active' : ''} aria-label="Заливка ведром" title={canUseTool('fill') ? 'Заливка ведром' : 'Откроется в следующих уроках'} disabled={!canUseTool('fill')} aria-pressed={tool === 'fill'} onClick={() => setTool('fill')}><ToolIcon name="bucket" /></button>
             <button type="button" className={tool === 'shape' ? 'tool-active' : ''} aria-label="Фигуры" title={canUseTool('shape') ? 'Фигуры' : 'Откроется в следующих уроках'} disabled={!canUseTool('shape')} aria-pressed={tool === 'shape'} onClick={() => setTool('shape')}><ToolIcon name="shapes" /></button>
+            <button type="button" className={tool === 'select' ? 'tool-active' : ''} aria-label="Выделение" title={canUseTool('select') ? 'Выделение объектов' : 'Откроется в следующих уроках'} disabled={!canUseTool('select')} aria-pressed={tool === 'select'} onClick={() => { setSelectedShapeId(null); setTool('select'); }}><ToolIcon name="select" /></button>
             <button type="button" className={tool === 'eyedropper' ? 'tool-active' : ''} aria-label="Пипетка" title={canUseTool('eyedropper') ? 'Пипетка' : 'Откроется в следующих уроках'} disabled={!canUseTool('eyedropper')} aria-pressed={tool === 'eyedropper'} onClick={() => setTool('eyedropper')}><ToolIcon name="eyedropper" /></button>
             <PalettePopover color={color} colors={project.palette} recentColors={displayedRecentColors} onSelect={selectColor} onSaveColor={(next) => {
               if (!project.palette.some((entry) => entry.toLowerCase() === next.toLowerCase())) {
@@ -634,6 +737,7 @@ export function EditorCanvas({ history, referenceImages, onAction, onUndo, onRed
         <div className="canvas-footer">
           <span>Штрихов: {pointCount}</span>
           <span>Фигур и заливок: {contentCount - pointCount}</span>
+          {tool === 'select' && <span className="interaction-hint">{selectedIds.length ? `Выбрано: ${selectedIds.length}` : 'Нажмите на объект или обведите рамкой'}</span>}
           {(tool === 'shape' || selectedShape) && <span className="interaction-hint">Удерживайте фигуру 0,5 с, чтобы переместить</span>}
           <div className="zoom-controls">
             <button type="button" aria-label="Уменьшить" title="Уменьшить" onClick={() => setView((current) => zoomView(current, current.zoom - 0.25))}><ToolIcon name="minus" /></button>

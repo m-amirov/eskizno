@@ -47,6 +47,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe('E1.6 — три входа в свободную студию', () => {
+  it('показывает состояние загрузки, пока планшет декодирует выбранный файл', async () => {
+    let finish!: (bitmap: ImageBitmap) => void;
+    globalThis.createImageBitmap = vi.fn(() => new Promise<ImageBitmap>((resolve) => { finish = resolve; })) as unknown as typeof createImageBitmap;
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Свободная студия' }));
+    fireEvent.change(screen.getByLabelText('Загрузить эскиз для обводки'), { target: { files: [png()] } });
+    expect(screen.getByText(/загружаем изображение/i)).toBeTruthy();
+    await waitFor(() => expect(globalThis.createImageBitmap).toHaveBeenCalledOnce());
+    await act(async () => { finish(Object.assign(createCanvas(300, 200), { close: vi.fn() }) as unknown as ImageBitmap); });
+    await screen.findByRole('dialog', { name: 'Размер нового документа' });
+    expect(screen.queryByText(/загружаем изображение/i)).toBeNull();
+  });
   it('создаёт документ для обводки, показывает размеры и сохраняет вложенный Blob', async () => {
     render(<App />);
     fireEvent.click(screen.getByRole('button', { name: 'Свободная студия' }));

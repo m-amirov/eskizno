@@ -94,6 +94,8 @@ export type ProjectAction =
   | { type: 'addStroke'; layerId: string; stroke: Stroke }
   | { type: 'addShape'; layerId: string; shape: Shape }
   | { type: 'updateShape'; layerId: string; shapeId: string; from: Point; to: Point }
+  | { type: 'transformItems'; layerId: string; ids: string[]; origin: Point;
+    scaleX: number; scaleY: number; translateX: number; translateY: number }
   | { type: 'addFill'; layerId: string; fill: BucketFill }
   | { type: 'clearDrawing' }
   | { type: 'addLayer'; layer: Layer; index?: number }
@@ -341,6 +343,36 @@ export function parseDrawingProject(value: unknown): DrawingProject | null {
 
 export function applyAction(project: DrawingProject, action: ProjectAction): DrawingProject {
   switch (action.type) {
+    case 'transformItems': {
+      const { ids, origin, scaleX, scaleY, translateX, translateY } = action;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100_000
+        || ids.some((id) => !isId(id)) || new Set(ids).size !== ids.length
+        || !isPoint(origin) || ![scaleX, scaleY, translateX, translateY].every(Number.isFinite)
+        || scaleX <= 0 || scaleY <= 0 || scaleX > 100 || scaleY > 100
+        || Math.abs(translateX) > 1 || Math.abs(translateY) > 1
+        || (scaleX === 1 && scaleY === 1 && translateX === 0 && translateY === 0)) return project;
+      return updateLayer(project, action.layerId, (layer) => {
+        if (layer.kind !== 'paint' || layer.locked || !layer.visible) return null;
+        const known = new Set([...layer.strokes.map((entry) => entry.id),
+          ...getPaintOperations(layer).flatMap((op) => op.type === 'shape' ? [op.shape.id] : [])]);
+        if (ids.some((id) => !known.has(id))) return null;
+        const wanted = new Set(ids);
+        const scaleWidth = Math.sqrt(scaleX * scaleY);
+        const point = (entry: Point): Point => ({
+          x: Math.round((origin.x + (entry.x - origin.x) * scaleX + translateX) * 1_000_000) / 1_000_000,
+          y: Math.round((origin.y + (entry.y - origin.y) * scaleY + translateY) * 1_000_000) / 1_000_000,
+        });
+        const nextStrokes = layer.strokes.map((entry) => wanted.has(entry.id)
+          ? { ...entry, width: Math.min(256, entry.width * scaleWidth), points: entry.points.map(point) } : entry);
+        const nextOperations = getPaintOperations(layer).map((operation) =>
+          operation.type === 'shape' && wanted.has(operation.shape.id)
+            ? { type: 'shape' as const, shape: { ...operation.shape, width: Math.min(256, operation.shape.width * scaleWidth),
+              from: point(operation.shape.from), to: point(operation.shape.to) } } : operation);
+        if (!nextStrokes.every(isValidStroke)
+          || !nextOperations.every((operation) => operation.type !== 'shape' || isValidShape(operation.shape))) return null;
+        return { ...layer, strokes: nextStrokes, operations: nextOperations };
+      });
+    }
     case 'setLessonStep': {
       if (!project.lesson || !Number.isInteger(action.step) || action.step < 0
         || action.step === project.lesson.step) return project;
