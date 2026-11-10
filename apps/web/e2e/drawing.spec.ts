@@ -220,7 +220,10 @@ test('при очень низком viewport инструменты и холс
   const footer = page.locator('.canvas-footer');
   expect((await canvas.boundingBox())?.width).toBeGreaterThan(150);
   await footer.scrollIntoViewIfNeeded();
-  await expect(page.getByRole('button', { name: 'Сброс масштаба' })).toBeInViewport();
+  const resetZoom = page.getByRole('button', { name: 'Сброс масштаба' });
+  // On a short viewport the footer can wrap: test access by scrolling to the actual control.
+  await resetZoom.scrollIntoViewIfNeeded();
+  await expect(resetZoom).toBeInViewport();
   const dimensions = await page.evaluate(() => ({
     scrollHeight: document.documentElement.scrollHeight,
     scrollWidth: document.documentElement.scrollWidth,
@@ -239,7 +242,8 @@ test('колёсико масштабирует холст и не меняет 
   if (!bounds) throw new Error('Холст не виден');
   await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
   await page.mouse.wheel(0, -140);
-  await expect(page.getByText('100%')).toBeHidden();
+  // The toolbar has a separate "100%" brush opacity label; only the zoom display should change.
+  await expect(page.locator('.zoom-controls > span')).not.toHaveText('100%');
   expect(await canvas.evaluate((node: HTMLCanvasElement) => [node.width, node.height])).toEqual([1024, 768]);
 });
 
@@ -251,7 +255,14 @@ test('полноэкранная студия сохраняет инструм�
   await expect(page.getByRole('button', { name: 'Кисти, выбран Карандаш' })).toBeVisible();
   const fullscreenSupported = await page.evaluate(() => Boolean(document.fullscreenElement));
   if (fullscreenSupported) {
-    await expect(page.getByRole('heading', { name: 'Эскизно' })).toBeHidden();
+    // Playwright's visibility matcher does not account for the browser's fullscreen top layer.
+    // Verify that the browser itself owns the editor and excludes the site chrome.
+    expect(await page.evaluate(() => {
+      const host = document.fullscreenElement;
+      const editor = document.querySelector('.studio-layout');
+      const header = document.querySelector('.site-header');
+      return !!host && !!editor && host.contains(editor) && !!header && !host.contains(header);
+    })).toBe(true);
   }
   await page.getByRole('button', { name: 'Выйти из полного экрана' }).click();
   await expect(page.getByRole('button', { name: 'Полный экран' })).toBeVisible();
