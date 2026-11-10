@@ -114,7 +114,7 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .workspace-page > .reference-panel { margin-bottom: 12px; flex-shrink: 0; }
 .reference-panel-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; font-size: 13px; }
 .reference-panel-heading .secondary-button { font-size: 12px; padding: 7px 10px; }
-.reference-collapse { background: transparent; border: 0; padding: 5px; color: #315c46; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.reference-collapse { margin-left: auto; background: transparent; border: 0; padding: 5px; color: #315c46; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
 .reference-collapse:focus-visible { outline: 2px solid #315c46; border-radius: 4px; }
 .reference-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-top: 9px; font-size: 11px; }
 .reference-controls label { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; }

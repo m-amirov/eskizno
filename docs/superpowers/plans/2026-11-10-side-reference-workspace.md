@@ -53,5 +53,5 @@
 
 - [x] RED: E2E размеры на 1280×800 и изменение ширины мышью/клавиатурой; ожидаемый FAIL на CI #32. Портретные проверки дополняют сценарий.
 - [x] GREEN: ограниченные доли колонок, preview занимает доступную площадь, портрет использует документную прокрутку.
-- [ ] Full run: `npm run typecheck && npm run test:unit && npm run build && npm run test:e2e`, v0.4 regression; CI screenshots desktop/tablet/mobile и визуальная оценка.
-- [ ] Документация фактических PASS/NOT TESTED и отдельный Draft-коммит, без merge.
+- [x] Full run через GitHub Actions [#36](https://github.com/m-amirov/eskizno/actions/runs/42767082941): typecheck, 194 unit, production build и 29 Chromium E2E PASS (включая прежние регрессии). Снимки desktop 1280×800, tablet 820×1180 и phone 390×844 просмотрены: порядок правильный, нет горизонтального overflow. Физические устройства — NOT TESTED.
+- [x] Документация фактических PASS/NOT TESTED в `README.md` и `docs/qa/e1-device-acceptance.md`; Draft PR, без merge.
