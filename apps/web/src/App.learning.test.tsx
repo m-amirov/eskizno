@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { DrawingProject } from './editor/model';
+import { createProject } from './editor/model';
 
 const memory = vi.hoisted(() => ({
   projects: new Map<string, DrawingProject>(),
@@ -153,4 +154,59 @@ describe('E2 — самостоятельная практика', () => {
     expect(screen.getByRole('heading', { name: 'Ветка с листьями' })).toBeTruthy();
     memory.failPractice = false;
   });
+});
+
+describe('E2 — полный учебный цикл', () => {
+  it('не принимает финальный номер шага за доказательство выполненных рисунков', async () => {
+    const project = createProject({ title: 'Чашка кофе', lesson: {
+      id: 'e2b-coffee-cup', audience: 'adult', mode: 'construct', step: 6,
+    } });
+    memory.projects.set(project.id, project);
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Чашка кофе' }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Чашка кофе' }));
+    await screen.findByRole('heading', { name: 'Чашка кофе' });
+    expect(screen.getByRole('button', { name: 'Завершить урок' }).hasAttribute('disabled')).toBe(true);
+    expect(memory.savedProgress.completedLessonIds).toEqual([]);
+  });
+
+  for (const [title, id, practice] of [
+    ['Ветка с листьями', 'e2a-botanical-branch', 'Веточка розмарина'],
+    ['Чашка кофе', 'e2b-coffee-cup', 'Стакан для карандашей'],
+    ['Комнатное растение', 'e2c-houseplant', 'Кактус в горшке'],
+  ]) {
+    it(`сохраняет шесть шагов и завершение урока «${title}» независимо от практики`, async () => {
+      const originalRect = HTMLCanvasElement.prototype.getBoundingClientRect;
+      HTMLCanvasElement.prototype.getBoundingClientRect = () => ({ x: 0, y: 0, top: 0, left: 0,
+        width: 1024, height: 768, right: 1024, bottom: 768, toJSON: () => ({}) });
+      try {
+        render(<App />);
+        await waitFor(() => expect(screen.getByRole('button', { name: title }).hasAttribute('disabled')).toBe(false));
+        fireEvent.click(screen.getByRole('button', { name: title }));
+        await screen.findByRole('heading', { name: title });
+        await act(async () => {});
+        for (let step = 0; step < 6; step += 1) {
+          expect(screen.getByText(`Шаг ${step + 1} из 6`)).toBeTruthy();
+          const button = screen.getByRole('button', { name: step === 5 ? 'Закончить урок' : 'Следующий шаг' });
+          expect(button.hasAttribute('disabled')).toBe(true);
+          draw();
+          await waitFor(() => expect(button.hasAttribute('disabled')).toBe(false));
+          fireEvent.click(button);
+        }
+        await screen.findByRole('button', { name: 'Завершить урок' });
+        fireEvent.click(screen.getByRole('button', { name: 'Завершить урок' }));
+        await screen.findByText('Урок завершён');
+        expect(memory.savedProgress.completedLessonIds).toContain(id);
+        fireEvent.click(screen.getByRole('button', { name: 'Начать самостоятельную практику' }));
+        await screen.findByRole('heading', { name: 'Свободная студия' });
+        expect([...memory.projects.values()].some((project) => project.title === practice && !project.lesson)).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Обучение' }));
+        await screen.findByRole('button', { name: title });
+        fireEvent.click(screen.getByRole('button', { name: title }));
+        await screen.findByRole('heading', { name: title });
+        expect(screen.getByText('Урок завершён')).toBeTruthy();
+        expect([...memory.projects.values()].filter((project) => project.lesson?.id === id)).toHaveLength(1);
+      } finally { HTMLCanvasElement.prototype.getBoundingClientRect = originalRect; }
+    });
+  }
 });
