@@ -110,7 +110,8 @@ export type ProjectAction =
   | { type: 'setActiveLayer'; layerId: string }
   | { type: 'setReferenceTransform'; layerId: string; transform: ReferenceTransform }
   | { type: 'setPalette'; palette: string[] }
-  | { type: 'setLessonStep'; step: number };
+  | { type: 'setLessonStep'; step: number }
+  | { type: 'setLessonMode'; mode: LessonContext['mode'] };
 
 export interface CreateProjectOptions {
   title?: string;
@@ -385,6 +386,11 @@ export function applyAction(project: DrawingProject, action: ProjectAction): Dra
           || !nextOperations.every((operation) => operation.type !== 'shape' || isValidShape(operation.shape))) return null;
         return { ...layer, strokes: nextStrokes, operations: nextOperations };
       });
+    }
+    case 'setLessonMode': {
+      if (!project.lesson || !['trace', 'construct', 'free'].includes(action.mode)
+        || project.lesson.mode === action.mode) return project;
+      return nextProject(project, { lesson: { ...project.lesson, mode: action.mode } });
     }
     case 'setLessonStep': {
       if (!project.lesson || !Number.isInteger(action.step) || action.step < 0

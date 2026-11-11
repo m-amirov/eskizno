@@ -9,6 +9,9 @@ export interface LearningProgress {
 
 const UNLOCKS_BY_LESSON: Readonly<Record<string, readonly EditorToolId[]>> = {
   'line-confidence-v1': ['ink', 'erase'],
+  'e2a-botanical-branch': ['ink', 'erase'],
+  'e2b-coffee-cup': ['ink', 'erase'],
+  'e2c-houseplant': ['ink', 'erase'],
 };
 
 const EMPTY_PROGRESS = (): LearningProgress => ({

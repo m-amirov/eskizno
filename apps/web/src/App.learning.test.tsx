@@ -104,3 +104,25 @@ describe('R1 — ошибки при сохранении обучения', () 
     expect([...memory.projects.values()].filter((project) => !!project.lesson)).toHaveLength(1);
   });
 });
+
+describe('E2 — каталог уроков', () => {
+  it('открывает выбранный урок и восстанавливает самостоятельный проект после возврата', async () => {
+    render(<App />);
+    await screen.findByRole('button', { name: 'Начать урок линий' });
+    fireEvent.click(screen.getByRole('button', { name: 'Ветка с листьями' }));
+    await screen.findByRole('heading', { name: 'Ветка с листьями' });
+    expect(screen.getByText('Шаг 1 из 6')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Нарисуй сам' }));
+    expect(screen.getByRole('button', { name: 'Нарисуй сам' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('img', { name: 'Пошаговая схема рисунка' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Повтори' }));
+    expect(screen.getByRole('img', { name: 'Пошаговая схема рисунка' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'К обучению' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Чашка кофе' }));
+    await screen.findByRole('heading', { name: 'Чашка кофе' });
+    fireEvent.click(screen.getByRole('button', { name: 'К обучению' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ветка с листьями' }));
+    await screen.findByRole('heading', { name: 'Ветка с листьями' });
+    expect([...memory.projects.values()].filter((project) => project.lesson?.id === 'e2a-botanical-branch')).toHaveLength(1);
+  });
+});
