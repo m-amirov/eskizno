@@ -201,6 +201,9 @@ test('параметры пера доступны без горизонталь
     await expect(tilt).toBeChecked();
     const penCanvas = await page.getByRole('img', { name: 'Холст для рисования' }).boundingBox();
     expect(penCanvas?.width, `Холст не должен схлопываться после включения каллиграфии: ${JSON.stringify(viewport)}`).toBeGreaterThan(100);
+    const resetZoom = page.getByRole('button', { name: 'Сброс масштаба' });
+    await resetZoom.scrollIntoViewIfNeeded();
+    await expect(resetZoom).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width + 1);
   }
 });

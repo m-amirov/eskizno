@@ -465,6 +465,12 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .artboard-stage { min-height: 220px; padding: 12px; }
   .app-shell-studio .artboard-stage { min-height: 0; }
   .app-shell-studio:has(.layers-body.open):not(:has(.focus-mode, :fullscreen)) .artboard-stage { min-height: 340px; }
+  /* Calligraphy adds tilt controls; allow vertical scrolling instead of shrinking the artboard. */
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) { height: auto; min-height: 100dvh; overflow: visible; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) :is(.main-content, .workspace-page) { flex: none; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .studio-layout { grid-template-rows: auto auto; overflow: visible; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .studio-main { height: auto; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .artboard-stage { flex: none; min-height: 340px; }
   .studio-entry-bar .secondary-button { flex: 1 1 auto; min-width: 0; font-size: 12px; }
   .reference-controls input[type='range'] { width: 90px; }
 }
