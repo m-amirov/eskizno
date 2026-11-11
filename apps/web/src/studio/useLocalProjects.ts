@@ -375,6 +375,35 @@ export function useLocalProjects() {
     }
   };
 
+  const startPractice = async (lessonId: string): Promise<boolean> => {
+    const db = dbRef.current;
+    const lesson = getLesson(lessonId);
+    if (!ready || !db || !lesson || currentRef.current.lesson?.id !== lessonId) return false;
+    const revision = editRevisionRef.current;
+    if (!(await flush()) || revision !== editRevisionRef.current) return false;
+    const project = createProject({ title: lesson.practice });
+    try {
+      await saveProject(db, project, new Map());
+      if (revision !== editRevisionRef.current) return false;
+      generationRef.current += 1;
+      currentRef.current = project;
+      savedRef.current = project;
+      writtenRef.current = project;
+      assetsRef.current = new Map();
+      setAssets(assetsRef.current);
+      setHistory(createProjectHistory(project));
+      rememberOpened(project.id);
+      setSaveStatus('saved');
+      setStorageMessage(null);
+      setLearningMessage(null);
+      await refreshProjects(db);
+      return true;
+    } catch {
+      setLearningMessage('Не удалось создать самостоятельную практику. Учебный рисунок остался на месте.');
+      return false;
+    }
+  };
+
   const openProfessionalWorkspace = async (): Promise<boolean> => {
     const db = dbRef.current;
     if (!ready || !db) return false;
@@ -455,6 +484,6 @@ export function useLocalProjects() {
   };
 
   return { history, ready, saveStatus, storageMessage, migrationMessage, projects, assets,
-    learningProgress, learningMessage, startLesson, openProfessionalWorkspace, copyLessonToStudio, finishLesson,
+    learningProgress, learningMessage, startLesson, startPractice, openProfessionalWorkspace, copyLessonToStudio, finishLesson,
     apply, undo, redo, flush, open, createNew, createWithReference, remove, retry, loadPreview };
 }

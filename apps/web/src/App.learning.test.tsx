@@ -7,6 +7,7 @@ const memory = vi.hoisted(() => ({
   savedProgress: { schemaVersion: 1 as const, completedLessonIds: [] as string[], unlockedToolIds: [] as string[] },
   failProgress: false,
   failCopy: false,
+  failPractice: false,
 }));
 
 vi.mock('./editor/persistence', () => ({
@@ -20,6 +21,7 @@ vi.mock('./editor/persistence', () => ({
   },
   saveProject: async (_db: unknown, project: DrawingProject) => {
     if (memory.failCopy && project.title.includes('свободная копия')) throw new Error('QuotaExceededError');
+    if (memory.failPractice && project.title === 'Веточка розмарина') throw new Error('QuotaExceededError');
     memory.projects.set(project.id, structuredClone(project));
   },
   listProjects: async () => [...memory.projects.values()].map((project) => ({
@@ -40,6 +42,7 @@ beforeEach(() => {
   memory.savedProgress = { schemaVersion: 1, completedLessonIds: [], unlockedToolIds: [] };
   memory.failProgress = false;
   memory.failCopy = false;
+  memory.failPractice = false;
 });
 afterEach(() => { cleanup(); localStorage.clear(); });
 
@@ -124,5 +127,30 @@ describe('E2 — каталог уроков', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ветка с листьями' }));
     await screen.findByRole('heading', { name: 'Ветка с листьями' });
     expect([...memory.projects.values()].filter((project) => project.lesson?.id === 'e2a-botanical-branch')).toHaveLength(1);
+  });
+});
+
+describe('E2 — самостоятельная практика', () => {
+  it('создаёт отдельный рисунок розмарина, сохраняя учебный проект', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ветка с листьями' }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Ветка с листьями' }));
+    await screen.findByRole('heading', { name: 'Ветка с листьями' });
+    fireEvent.click(screen.getByRole('button', { name: 'Начать самостоятельную практику' }));
+    await screen.findByRole('heading', { name: 'Свободная студия' });
+    expect([...memory.projects.values()].some((project) => project.title === 'Веточка розмарина' && !project.lesson)).toBe(true);
+    expect([...memory.projects.values()].some((project) => project.lesson?.id === 'e2a-botanical-branch')).toBe(true);
+  });
+
+  it('не открывает новый холст при ошибке сохранения и сохраняет исходный урок', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Ветка с листьями' }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Ветка с листьями' }));
+    await screen.findByRole('heading', { name: 'Ветка с листьями' });
+    memory.failPractice = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Начать самостоятельную практику' }));
+    await screen.findByText(/Не удалось создать самостоятельную практику/);
+    expect(screen.getByRole('heading', { name: 'Ветка с листьями' })).toBeTruthy();
+    memory.failPractice = false;
   });
 });

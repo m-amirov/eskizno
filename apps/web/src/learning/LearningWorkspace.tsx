@@ -21,12 +21,14 @@ interface LearningWorkspaceProps {
   onRetry: () => void;
   onComplete: () => Promise<boolean>;
   onCopy: () => Promise<boolean>;
+  onPractice: (lessonId: string) => Promise<boolean>;
+  onPracticing: () => void;
   onCopied: () => void;
   onBack: () => void;
 }
 
 export function LearningWorkspace({ history, progress, saveStatus, storageMessage, learningMessage,
-  onAction, onUndo, onRedo, onRetry, onComplete, onCopy, onCopied, onBack }: LearningWorkspaceProps) {
+  onAction, onUndo, onRedo, onRetry, onComplete, onCopy, onPractice, onPracticing, onCopied, onBack }: LearningWorkspaceProps) {
   const [busy, setBusy] = useState(false);
   const project = history.present;
   const definition = getLesson(project.lesson?.id ?? '');
@@ -50,6 +52,11 @@ export function LearningWorkspace({ history, progress, saveStatus, storageMessag
   const finish = async () => {
     setBusy(true);
     try { await onComplete(); }
+    finally { setBusy(false); }
+  };
+  const practice = async (lessonId: string) => {
+    setBusy(true);
+    try { if (await onPractice(lessonId)) onPracticing(); }
     finally { setBusy(false); }
   };
 
@@ -87,7 +94,12 @@ export function LearningWorkspace({ history, progress, saveStatus, storageMessag
         onClick={() => { void finish(); }}>Завершить урок</button> : null}
       {lesson && <p className="lesson-hint" role="status">{satisfied ? 'Штрих принят. Можно продолжать.'
         : 'Следующий шаг откроется после рисования на холсте.'}</p>}
-      {definition && <p className="lesson-hint">Самостоятельная практика: {definition.practice}.</p>}
+      {definition && <div className="lesson-practice">
+        <p className="lesson-hint">Перенесите навык на новый предмет: {definition.practice}.
+          Откроется отдельный холст в свободной студии, а учебный рисунок сохранится.</p>
+        <button className="secondary-button" type="button" disabled={busy || saveStatus === 'loading'}
+          onClick={() => { void practice(definition.id); }}>Начать самостоятельную практику</button>
+      </div>}
       {learningMessage && <p className="import-error" role="alert">{learningMessage}</p>}
       <p className="lesson-access-note">В обучении инструменты открываются постепенно. Пока доступны кисти
         {progress.unlockedToolIds.includes('erase') ? ' и ластик' : '; ластик откроется после урока'}.

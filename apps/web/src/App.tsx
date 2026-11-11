@@ -119,6 +119,7 @@ export function App() {
           saveStatus={storage.saveStatus} storageMessage={storage.storageMessage} learningMessage={storage.learningMessage}
           onAction={storage.apply} onUndo={storage.undo} onRedo={storage.redo} onRetry={() => { void storage.retry(); }}
           onComplete={storage.finishLesson} onCopy={storage.copyLessonToStudio} onCopied={() => setView('studio')}
+          onPractice={storage.startPractice} onPracticing={() => setView('studio')}
           onBack={() => navigate('start')} />}
 
         {view === 'studio' && storage.history.present.lesson && <p className="migration-notice" role="status">Подготавливаем свободную студию…</p>}
