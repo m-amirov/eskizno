@@ -393,3 +393,12 @@ describe('модель рисунка', () => {
     expect(applyAction(project, { type: 'setActiveLayer', layerId: 'missing' })).toBe(project);
   });
 });
+describe('E2 modes', () => {
+  it('switches guidance without deleting any committed artwork', () => {
+    const source = createProject({ lesson: { id: 'e2a-botanical-branch', audience: 'adult', mode: 'trace', step: 2 } });
+    const changed = applyAction(source, { type: 'setLessonMode', mode: 'free' });
+    expect(changed.lesson).toEqual({ id: 'e2a-botanical-branch', audience: 'adult', mode: 'free', step: 2 });
+    expect(changed.layers).toEqual(source.layers);
+    expect(applyAction(createProject(), { type: 'setLessonMode', mode: 'trace' }).lesson).toBeUndefined();
+  });
+});

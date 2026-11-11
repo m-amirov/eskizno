@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createProjectHistory, redoAction, undoAction, type ProjectHistory } from '../editor/history';
 import { createProject, type DrawingProject, type ProjectAction } from '../editor/model';
 import { guardedCommitAction, PROFESSIONAL_TOOL_ACCESS, type ToolAvailabilityContext } from '../editor/toolAccess';
-import { FIRST_LESSON_ID, isLessonStepSatisfied, learningLessonSteps } from '../learning/lessons';
+import { FIRST_LESSON_ID, getLesson, isLessonStepSatisfied, learningLessonSteps } from '../learning/lessons';
 import { completeLearningLesson, duplicateLessonProject, normalizeLearningProgress } from '../learning/progress';
 import { addReferenceLayer } from '../editor/reference-mode';
 import type { ImportedImage } from '../editor/import-image';
@@ -341,17 +341,17 @@ export function useLocalProjects() {
     return loadProject(dbRef.current, id);
   }, []);
 
-  const startLesson = async (): Promise<boolean> => {
+  const startLesson = async (lessonId = FIRST_LESSON_ID): Promise<boolean> => {
     const db = dbRef.current;
-    if (!ready || !db) return false;
-    if (currentRef.current.lesson?.id === FIRST_LESSON_ID) return true;
+    if (!ready || !db || (lessonId !== FIRST_LESSON_ID && !getLesson(lessonId))) return false;
+    if (currentRef.current.lesson?.id === lessonId) return true;
     const revision = editRevisionRef.current;
     if (!(await flush())) return false;
     if (revision !== editRevisionRef.current) return false;
-    const existing = projects.find((entry) => entry.lessonId === FIRST_LESSON_ID);
+    const existing = projects.find((entry) => entry.lessonId === lessonId);
     if (existing) return open(existing.id);
-    const project = createProject({ title: 'Линия и уверенность', lesson: {
-      id: FIRST_LESSON_ID, audience: 'adult', mode: 'construct', step: 0,
+    const project = createProject({ title: getLesson(lessonId)?.title ?? 'Линия и уверенность', lesson: {
+      id: lessonId, audience: 'adult', mode: 'construct', step: 0,
     } });
     try {
       await saveProject(db, project, new Map());
@@ -371,6 +371,35 @@ export function useLocalProjects() {
       return true;
     } catch {
       setLearningMessage('Не удалось создать урок. Текущий рисунок не изменён.');
+      return false;
+    }
+  };
+
+  const startPractice = async (lessonId: string): Promise<boolean> => {
+    const db = dbRef.current;
+    const lesson = getLesson(lessonId);
+    if (!ready || !db || !lesson || currentRef.current.lesson?.id !== lessonId) return false;
+    const revision = editRevisionRef.current;
+    if (!(await flush()) || revision !== editRevisionRef.current) return false;
+    const project = createProject({ title: lesson.practice });
+    try {
+      await saveProject(db, project, new Map());
+      if (revision !== editRevisionRef.current) return false;
+      generationRef.current += 1;
+      currentRef.current = project;
+      savedRef.current = project;
+      writtenRef.current = project;
+      assetsRef.current = new Map();
+      setAssets(assetsRef.current);
+      setHistory(createProjectHistory(project));
+      rememberOpened(project.id);
+      setSaveStatus('saved');
+      setStorageMessage(null);
+      setLearningMessage(null);
+      await refreshProjects(db);
+      return true;
+    } catch {
+      setLearningMessage('Не удалось создать самостоятельную практику. Учебный рисунок остался на месте.');
       return false;
     }
   };
@@ -437,12 +466,13 @@ export function useLocalProjects() {
 
   const finishLesson = async (): Promise<boolean> => {
     const db = dbRef.current;
-    if (!ready || !db || currentRef.current.lesson?.id !== FIRST_LESSON_ID
-      || currentRef.current.lesson.step < learningLessonSteps.length
-      || !learningLessonSteps.every((_, i) => isLessonStepSatisfied(currentRef.current, i))) return false;
+    const lessonId = currentRef.current.lesson?.id;
+    const steps = lessonId === FIRST_LESSON_ID ? learningLessonSteps : getLesson(lessonId ?? '')?.steps;
+    if (!ready || !db || !lessonId || !steps || currentRef.current.lesson!.step < steps.length
+      || !steps.every((_, i) => isLessonStepSatisfied(currentRef.current, i))) return false;
     const revision = editRevisionRef.current;
     if (!(await flush()) || revision !== editRevisionRef.current) return false;
-    const updated = completeLearningLesson(learningProgress, FIRST_LESSON_ID);
+    const updated = completeLearningLesson(learningProgress, lessonId);
     try {
       await saveLearningProgress(db, updated);
       if (aliveRef.current) { setLearningProgress(updated); setLearningMessage(null); }
@@ -454,6 +484,6 @@ export function useLocalProjects() {
   };
 
   return { history, ready, saveStatus, storageMessage, migrationMessage, projects, assets,
-    learningProgress, learningMessage, startLesson, openProfessionalWorkspace, copyLessonToStudio, finishLesson,
+    learningProgress, learningMessage, startLesson, startPractice, openProfessionalWorkspace, copyLessonToStudio, finishLesson,
     apply, undo, redo, flush, open, createNew, createWithReference, remove, retry, loadPreview };
 }

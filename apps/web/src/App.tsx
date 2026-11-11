@@ -3,6 +3,7 @@ import { ProjectGallery } from './studio/ProjectGallery';
 import { Studio } from './studio/Studio';
 import { useLocalProjects } from './studio/useLocalProjects';
 import { LearningWorkspace } from './learning/LearningWorkspace';
+import { E2_LESSONS } from './learning/lessons';
 
 type View = 'start' | 'learning' | 'studio' | 'projects';
 
@@ -31,9 +32,9 @@ export function App() {
     }
   };
 
-  const enterLesson = () => {
+  const enterLesson = (lessonId?: string) => {
     setNavigating(true);
-    void storage.startLesson().then((okay) => { if (okay) setView('learning'); })
+    void storage.startLesson(lessonId).then((okay) => { if (okay) setView('learning'); })
       .finally(() => setNavigating(false));
   };
 
@@ -83,9 +84,13 @@ export function App() {
                 Начните с трёх простых упражнений. Инструменты открываются по мере обучения,
                 а в свободной студии всё доступно сразу.
               </p>
-              <button className="primary-button" type="button" onClick={enterLesson} disabled={!storage.ready || navigating}>
+              <button className="primary-button" type="button" onClick={() => enterLesson()} disabled={!storage.ready || navigating}>
                 {storage.learningProgress.completedLessonIds.includes('line-confidence-v1') ? 'Вернуться к уроку' : 'Начать урок линий'}
               </button>
+              <div className="lesson-catalog" aria-label="Уроки рисования">
+                {E2_LESSONS.map((lesson) => <button key={lesson.id} className="secondary-button" type="button"
+                  disabled={!storage.ready || navigating} onClick={() => enterLesson(lesson.id)}>{lesson.title}</button>)}
+              </div>
               <button className="secondary-button intro-studio-button" type="button" onClick={() => navigate('studio')} disabled={navigating}>
                 Открыть свободную студию
               </button>
@@ -114,6 +119,7 @@ export function App() {
           saveStatus={storage.saveStatus} storageMessage={storage.storageMessage} learningMessage={storage.learningMessage}
           onAction={storage.apply} onUndo={storage.undo} onRedo={storage.redo} onRetry={() => { void storage.retry(); }}
           onComplete={storage.finishLesson} onCopy={storage.copyLessonToStudio} onCopied={() => setView('studio')}
+          onPractice={storage.startPractice} onPracticing={() => setView('studio')}
           onBack={() => navigate('start')} />}
 
         {view === 'studio' && storage.history.present.lesson && <p className="migration-notice" role="status">Подготавливаем свободную студию…</p>}

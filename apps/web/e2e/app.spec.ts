@@ -16,6 +16,20 @@ test('shows the two entry points and switches between them without a runtime err
   expect(errors).toEqual([]);
 });
 
+test('E2 catalogue opens three lessons and guidance modes without discarding the lesson', async ({ page }) => {
+  await page.goto('/');
+  for (const title of ['Ветка с листьями', 'Чашка кофе', 'Комнатное растение']) {
+    await page.getByRole('button', { name: title }).click();
+    await expect(page.getByRole('heading', { name: title })).toBeVisible();
+    await expect(page.getByText('Шаг 1 из 6')).toBeVisible();
+    await page.getByRole('button', { name: 'Повтори' }).click();
+    await expect(page.getByRole('img', { name: 'Пошаговая схема рисунка' })).toBeVisible();
+    await page.getByRole('button', { name: 'Нарисуй сам' }).click();
+    await expect(page.getByRole('img', { name: 'Пошаговая схема рисунка' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'К обучению' }).click();
+  }
+});
+
 test('пустая галерея остаётся компактной на телефоне и честно описывает сохранение', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
