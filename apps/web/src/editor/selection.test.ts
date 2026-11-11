@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { createCanvas } from '@napi-rs/canvas';
 
 import { applyAction, createProject, type PaintLayer, type Shape, type Stroke } from './model';
+import { paintBrushStroke } from './brushes';
 import { handleAt, handleFrame, hitTestSelectable, itemsInMarquee, selectionBounds, moveSelectionFrame,
   resizeSelectionDrag, resizeSelectionFrame, transformationForFrame } from './selection';
 
@@ -17,6 +19,41 @@ function layerWithObjects(): PaintLayer {
 }
 
 describe('выделение объектов', () => {
+  it.each(['liner', 'calligraphy'] as const)('выбирает край динамической кисти %s с учётом нажима и масштаба', (brushId) => {
+    const base = createProject();
+    const stroke: Stroke = { ...line, id: 'dynamic', brushId, width: 48,
+      dynamics: { pressureSize: .8, tiltAngle: true },
+      points: [{ x: .1, y: .2, pressure: 0 }, { x: .3, y: .2, pressure: 1 }] };
+    const project = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
+    for (const scale of [1, 4, 8]) {
+      expect(hitTestSelectable(project.layers[0] as PaintLayer, { x: .29, y: .231 }, 1000, 1000, scale)).toBe('dynamic');
+    }
+    const transformed = applyAction(project, { type: 'transformItems', layerId: base.activeLayerId, ids: ['dynamic'],
+      origin: { x: 0, y: 0 }, scaleX: 2, scaleY: 2, translateX: 0, translateY: 0 });
+    expect(hitTestSelectable(transformed.layers[0] as PaintLayer, { x: .58, y: .462 }, 1000, 1000, 8)).toBe('dynamic');
+  });
+
+  it('выбирает непрозрачный пиксель за пределом прежнего допуска liner', () => {
+    const base = createProject();
+    const stroke: Stroke = { ...line, brushId: 'liner', width: 48, dynamics: { pressureSize: .8, tiltAngle: true },
+      points: [{ x: .1, y: .2, pressure: 1 }, { x: .3, y: .2, pressure: 1 }] };
+    const canvas = createCanvas(1000, 1000); const ctx = canvas.getContext('2d');
+    paintBrushStroke(ctx as unknown as CanvasRenderingContext2D, stroke, 1000, 1000);
+    expect(ctx.getImageData(200, 230, 1, 1).data[3]).toBe(255);
+    const project = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
+    expect(hitTestSelectable(project.layers[0] as PaintLayer, { x: .2, y: .23 }, 1000, 1000, 4)).toBe('line');
+  });
+
+  it('сохраняет прежний допуск legacy и выбирает верхний динамический штрих', () => {
+    const base = createProject();
+    const legacy: Stroke = { ...line, width: 48 };
+    const dynamic: Stroke = { ...legacy, id: 'top', brushId: 'liner', dynamics: { pressureSize: .8, tiltAngle: true },
+      points: legacy.points.map((point) => ({ ...point, pressure: 1 })) };
+    const one = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke: legacy });
+    expect(hitTestSelectable(one.layers[0] as PaintLayer, { x: .2, y: .23 }, 1000, 1000, 8)).toBeNull();
+    const two = applyAction(one, { type: 'addStroke', layerId: base.activeLayerId, stroke: dynamic });
+    expect(hitTestSelectable(two.layers[0] as PaintLayer, { x: .2, y: .23 }, 1000, 1000, 8)).toBe('top');
+  });
   it('выбирает верхнюю фигуру и штрих по реальной траектории, игнорируя пустое место', () => {
     const layer = layerWithObjects();
     expect(hitTestSelectable(layer, { x: .7, y: .6 }, 1000, 800, 1)).toBe('square');

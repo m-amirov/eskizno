@@ -36,7 +36,62 @@ const stroke: Stroke = {
 };
 
 describe('модель рисунка', () => {
-  it('атомарно перемещает и масштабирует штрих и фигуру, сохраняя структуру v2 и Undo/Redo', () => {
+  it('мигрирует v2, сохраняя порядок операций, урок, палитру и референс', () => {
+    const base = createProject({ lesson: { id: 'lesson', audience: 'adult', mode: 'trace', step: 2 } });
+    const drawn = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
+    const filled = applyAction(drawn, { type: 'addFill', layerId: base.activeLayerId,
+      fill: { id: 'fill', point: { x: .5, y: .5 }, color: '#FF0000' } });
+    const withRef = applyAction(filled, { type: 'addLayer', layer: referenceLayer('ref') });
+    const legacy = { ...withRef, schemaVersion: 2, palette: ['#112233'] };
+    expect(parseDrawingProject(legacy)).toEqual({ ...legacy, schemaVersion: 3 });
+    expect(legacy.schemaVersion).toBe(2);
+    const withoutOperations = { ...legacy, layers: legacy.layers.map((layer) => layer.kind === 'paint'
+      ? { ...layer, operations: undefined } : layer) };
+    expect(parseDrawingProject(withoutOperations)?.layers[0]).not.toHaveProperty('operations');
+    const legacyWithExtraFields = { ...legacy, layers: legacy.layers.map((layer) => layer.kind === 'paint'
+      ? { ...layer, strokes: [{ ...stroke, dynamics: { pressureSize: 1, tiltAngle: true },
+        points: [{ x: .1, y: .2, pressure: .9 }] }] } : layer) };
+    const migratedExtra = parseDrawingProject(legacyWithExtraFields)?.layers[0];
+    expect(migratedExtra?.kind === 'paint' && migratedExtra.strokes[0]).toEqual({ ...stroke, points: [{ x: .1, y: .2 }] });
+  });
+
+  it('отклоняет некорректные pressure, tilt и dynamics в v3', () => {
+    const base = createProject();
+    const dynamic = { ...stroke, points: [{ x: .1, y: .2, pressure: .1, tiltX: -35, tiltY: 20 },
+      { x: .3, y: .4, pressure: .9 }], dynamics: { pressureSize: .7, tiltAngle: true } };
+    const project = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke: dynamic });
+    expect(parseDrawingProject(project)?.layers[0]).toMatchObject({ strokes: [dynamic] });
+    for (const bad of [
+      { ...dynamic, points: [{ x: .1, y: .2, pressure: -0.1 }] },
+      { ...dynamic, points: [{ x: .1, y: .2, pressure: 1.1 }] },
+      { ...dynamic, points: [{ x: .1, y: .2, pressure: NaN }] },
+      { ...dynamic, points: [{ x: .1, y: .2, tiltX: -91 }] },
+      { ...dynamic, points: [{ x: .1, y: .2, tiltY: 91 }] },
+      { ...dynamic, points: [{ x: .1, y: .2, tiltY: Infinity }] },
+      { ...dynamic, dynamics: { pressureSize: 1.1, tiltAngle: true } },
+      { ...dynamic, dynamics: { pressureSize: -.1, tiltAngle: true } },
+      { ...dynamic, dynamics: { pressureSize: .5, tiltAngle: 'yes' } },
+      { ...dynamic, dynamics: null },
+    ]) {
+      const invalid = { ...project, layers: [{ ...project.layers[0], strokes: [bad] }] };
+      expect(parseDrawingProject(invalid)).toBeNull();
+    }
+  });
+
+  it('сохраняет атрибуты пера при transformItems и undo/redo', () => {
+    const base = createProject();
+    const dynamic = { ...stroke, points: [{ x: .1, y: .2, pressure: .1, tiltX: -35, tiltY: 20 },
+      { x: .3, y: .4, pressure: .9 }], dynamics: { pressureSize: .7, tiltAngle: true } };
+    const drawn = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke: dynamic });
+    expect(drawn.layers[0]).toMatchObject({ strokes: [dynamic] });
+    const history = commitAction(createProjectHistory(drawn), { type: 'transformItems', layerId: base.activeLayerId,
+      ids: [stroke.id], origin: { x: 0, y: 0 }, scaleX: 1, scaleY: 1, translateX: .1, translateY: .1 });
+    expect(history.present.layers[0]).toMatchObject({ strokes: [{ ...dynamic,
+      points: [{ x: .2, y: .3, pressure: .1, tiltX: -35, tiltY: 20 }, { x: .4, y: .5, pressure: .9 }] }] });
+    expect(undoAction(history).present).toEqual(drawn);
+    expect(redoAction(undoAction(history)).present).toEqual(history.present);
+  });
+  it('атомарно перемещает и масштабирует штрих и фигуру, сохраняя структуру v3 и Undo/Redo', () => {
     const base = createProject();
     const withStroke = applyAction(base, { type: 'addStroke', layerId: base.activeLayerId, stroke });
     const shape: Shape = { id: 'shape-selected', kind: 'rectangle', from: { x: .3, y: .5 },
@@ -52,7 +107,7 @@ describe('модель рисунка', () => {
         { type: 'shape', shape: { id: 'shape-selected', width: 4,
           from: { x: .6, y: .55 }, to: { x: .8, y: .65 } } }],
     });
-    expect(history.present.schemaVersion).toBe(2);
+    expect(history.present.schemaVersion).toBe(3);
     expect(parseDrawingProject(history.present)).not.toBeNull();
     expect(undoAction(history).present).toEqual(withShape);
     expect(redoAction(undoAction(history)).present).toEqual(history.present);
@@ -89,11 +144,11 @@ describe('модель рисунка', () => {
       points: [{ x: .1, y: .1 }, { x: .9, y: .9 }] }] });
     expect(parseDrawingProject(scaled)).not.toBeNull();
   });
-  it('продвижение шага урока — обратимое действие без смены схемы v2', () => {
+  it('продвижение шага урока — обратимое действие без смены схемы v3', () => {
     const lesson = createProject({ lesson: { id: 'line-confidence-v1', audience: 'adult', mode: 'construct', step: 0 } });
     const advanced = applyAction(lesson, { type: 'setLessonStep', step: 1 });
     expect(advanced.lesson?.step).toBe(1);
-    expect(advanced.schemaVersion).toBe(2);
+    expect(advanced.schemaVersion).toBe(3);
     expect(applyAction(advanced, { type: 'setLessonStep', step: -1 })).toBe(advanced);
     expect(applyAction(createProject(), { type: 'setLessonStep', step: 1 })).not.toHaveProperty('lesson');
     expect(lesson.lesson?.step).toBe(0);
@@ -185,7 +240,7 @@ describe('модель рисунка', () => {
   it('создаёт проект с редактируемым активным paint-слоем', () => {
     const project = createProject({ title: 'Ветка', width: 1200, height: 900 });
 
-    expect(project.schemaVersion).toBe(2);
+    expect(project.schemaVersion).toBe(3);
     expect(project.title).toBe('Ветка');
     expect([project.width, project.height]).toEqual([1200, 900]);
     expect(project.layers).toHaveLength(1);

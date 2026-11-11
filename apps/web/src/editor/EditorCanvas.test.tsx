@@ -13,6 +13,148 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const waitForLongPress = () => act(() => { vi.advanceTimersByTime(500); });
 
 describe('связь выбранной кисти и штриха', () => {
+  it.each([false, true])('не теряет контактное давление при отпускании пера (ожидание фигуры: %s)', (pending) => {
+    const onAction = vi.fn();
+    const base = createProject();
+    const project = pending ? applyAction(base, { type: 'addShape', layerId: base.activeLayerId,
+      shape: { id: 'figure', kind: 'rectangle', from: { x: .1, y: .1 }, to: { x: .5, y: .5 }, color: '#444444', width: 3, style: 'both', opacity: 1 } }) : base;
+    render(<EditorCanvas history={createProjectHistory(project)} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, buttons: 1, clientX: 100, clientY: 90, pressure: .9 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', buttons: 0, clientX: 100, clientY: 90, pressure: 0 });
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke', stroke: expect.objectContaining({
+      points: [expect.objectContaining({ pressure: expect.closeTo(.9) })],
+    }) }));
+  });
+  it('фиксирует настройки и атрибуты пера в начале штриха и сохраняет изменения давления', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    const pressure = screen.getByRole('slider', { name: 'Чувствительность к нажиму' }) as HTMLInputElement;
+    expect(pressure.value).toBe('80');
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90, pressure: .2, tiltX: 20, tiltY: -10 });
+    fireEvent.change(pressure, { target: { value: '25' } });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 100, clientY: 90, pressure: .7, tiltX: 30, tiltY: 10 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 120, pressure: .8, tiltX: 30, tiltY: 10 });
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke', stroke: expect.objectContaining({
+      dynamics: { pressureSize: .8, tiltAngle: true }, points: [
+        { x: .25, y: .3, pressure: expect.closeTo(.7), tiltX: 30, tiltY: 10 },
+        { x: .35, y: .4, pressure: expect.closeTo(.8), tiltX: 30, tiltY: 10 },
+      ],
+    }) }));
+  });
+
+  it('показывает наклон только для каллиграфии и сохраняет настройки при переключении кистей', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    fireEvent.change(screen.getByRole('slider', { name: 'Чувствительность к нажиму' }), { target: { value: '35' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Кисти, выбран Карандаш' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать Каллиграфия' }));
+    const tilt = screen.getByRole('checkbox', { name: 'Наклон пера' }) as HTMLInputElement;
+    expect(tilt.checked).toBe(true);
+    fireEvent.click(tilt);
+    expect(tilt.checked).toBe(false);
+    expect((screen.getByRole('slider', { name: 'Чувствительность к нажиму' }) as HTMLInputElement).value).toBe('35');
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.click(tilt);
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 120 });
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke', stroke: expect.objectContaining({ dynamics: { pressureSize: .35, tiltAngle: false } }) }));
+    fireEvent.click(screen.getByRole('button', { name: 'Кисти, выбран Каллиграфия' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Выбрать Уголь' }));
+    expect(screen.queryByRole('slider', { name: 'Чувствительность к нажиму' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Наклон пера' })).toBeNull();
+  });
+
+  it.each(['mouse', 'touch'])('не записывает динамику для %s', (pointerType) => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType, button: 0, clientX: 100, clientY: 90, pressure: .8 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType, clientX: 140, clientY: 120, pressure: .9 });
+    const stroke = onAction.mock.calls[0][0].stroke;
+    expect(stroke.dynamics).toBeUndefined();
+    expect(stroke.points).toEqual([{ x: .25, y: .3 }, { x: .35, y: .4 }]);
+  });
+
+  it.each(['pointerCancel', 'lostPointerCapture'] as const)('не сохраняет перьевой штрих после %s', (cancel) => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90, pressure: .3 });
+    fireEvent[cancel](canvas, { pointerId: 7, pointerType: 'pen' });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 120 });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('отменяет перьевой штрих при выходе за границы холста', () => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 410, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 410, clientY: 90 });
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it.each([1, 2])('подавляет %i касаний после выхода пера до окончания контакта', (touchCount) => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 410, clientY: 90 });
+    fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: 'touch', button: 0, clientX: 100, clientY: 100 });
+    if (touchCount === 2) fireEvent.pointerDown(canvas, { pointerId: 2, pointerType: 'touch', button: 0, clientX: 200, clientY: 100 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 100 });
+    if (touchCount === 2) fireEvent.pointerMove(canvas, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 100 });
+    fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 100 });
+    if (touchCount === 2) fireEvent.pointerUp(canvas, { pointerId: 2, pointerType: 'touch', clientX: 250, clientY: 100 });
+    expect(onAction).not.toHaveBeenCalled();
+    expect(document.querySelector('.zoom-controls > span')?.textContent).toBe('100%');
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 410, clientY: 90 });
+    fireEvent.pointerDown(canvas, { pointerId: 3, pointerType: 'touch', button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(canvas, { pointerId: 3, pointerType: 'touch', clientX: 140, clientY: 120 });
+    expect(onAction).toHaveBeenCalledOnce();
+  });
+
+  it.each(['pointerCancel', 'lostPointerCapture'] as const)('после выхода пера снимает защиту при %s', (end) => {
+    const onAction = vi.fn();
+    render(<EditorCanvas history={createProjectHistory(createProject())} onAction={onAction} onUndo={() => {}} onRedo={() => {}} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerMove(canvas, { pointerId: 7, pointerType: 'pen', clientX: 410, clientY: 90 });
+    fireEvent[end](canvas, { pointerId: 7, pointerType: 'pen' });
+    fireEvent.pointerDown(canvas, { pointerId: 3, pointerType: 'touch', button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerUp(canvas, { pointerId: 3, pointerType: 'touch', clientX: 140, clientY: 120 });
+    expect(onAction).toHaveBeenCalledOnce();
+  });
+
+  it('применяет динамику в разрешённом уроке, но не открывает запрещённую кисть', () => {
+    const onAction = vi.fn();
+    const history = createProjectHistory(createProject());
+    const allowed: ToolAvailabilityContext = { mode: 'learning', permanentlyUnlockedToolIds: new Set(['ink']) };
+    const { rerender } = render(<EditorCanvas history={history} onAction={onAction} onUndo={() => {}} onRedo={() => {}} toolAccess={allowed} lessonStep={2} />);
+    const canvas = screen.getByRole('img', { name: 'Холст для рисования' }) as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 400, height: 300, right: 400, bottom: 300, toJSON: () => ({}) });
+    fireEvent.pointerDown(canvas, { pointerId: 7, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 140, clientY: 120 });
+    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'addStroke', stroke: expect.objectContaining({ step: 2, dynamics: { pressureSize: .8, tiltAngle: true } }) }));
+    onAction.mockClear();
+    const blocked: ToolAvailabilityContext = { mode: 'learning', permanentlyUnlockedToolIds: new Set() };
+    rerender(<EditorCanvas history={history} onAction={onAction} onUndo={() => {}} onRedo={() => {}} toolAccess={blocked} />);
+    expect(screen.queryByRole('slider', { name: 'Чувствительность к нажиму' })).toBeNull();
+    fireEvent.pointerDown(canvas, { pointerId: 8, pointerType: 'pen', button: 0, clientX: 100, clientY: 90 });
+    fireEvent.pointerUp(canvas, { pointerId: 8, pointerType: 'pen', clientX: 140, clientY: 120 });
+    expect(onAction).not.toHaveBeenCalled();
+  });
   it('показывает иконку выделения только как рабочий инструмент профессионального режима', () => {
     const history = createProjectHistory(createProject());
     const learning: ToolAvailabilityContext = { mode: 'learning', permanentlyUnlockedToolIds: new Set(['ink']) };
@@ -595,8 +737,8 @@ describe('связь выбранной кисти и штриха', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
       stroke: expect.objectContaining({ points: [
-        { x: .25, y: .3 }, { x: .3, y: 1 / 3 }, { x: .35, y: 110 / 300 },
-        { x: .4, y: .4 }, { x: .45, y: 130 / 300 },
+        expect.objectContaining({ x: .25, y: .3 }), { x: .3, y: 1 / 3 }, { x: .35, y: 110 / 300 },
+        { x: .4, y: .4 }, expect.objectContaining({ x: .45, y: 130 / 300 }),
       ] }) }));
   });
 
@@ -616,7 +758,7 @@ describe('связь выбранной кисти и штриха', () => {
     fireEvent.pointerUp(canvas, { pointerId: 7, pointerType: 'pen', clientX: 150, clientY: 120 });
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
-      stroke: expect.objectContaining({ points: [{ x: .25, y: 1 / 3 }, { x: .325, y: 110 / 300 }, { x: .375, y: .4 }] }) }));
+      stroke: expect.objectContaining({ points: [expect.objectContaining({ x: .25, y: 1 / 3 }), expect.objectContaining({ x: .325, y: 110 / 300 }), expect.objectContaining({ x: .375, y: .4 })] }) }));
     expect(document.querySelector('.zoom-controls > span')?.textContent).toBe('100%');
   });
 
@@ -643,8 +785,8 @@ describe('связь выбранной кисти и штриха', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
     expect(onAction).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'addStroke',
       stroke: expect.objectContaining({ points: [
-        { x: .25, y: .3 }, { x: .275, y: 95 / 300 }, { x: .3, y: 1 / 3 },
-        { x: .325, y: .35 }, { x: .35, y: 110 / 300 },
+        expect.objectContaining({ x: .25, y: .3 }), { x: .275, y: 95 / 300 }, { x: .3, y: 1 / 3 },
+        { x: .325, y: .35 }, expect.objectContaining({ x: .35, y: 110 / 300 }),
       ] }),
     }));
   });

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { DrawingProject } from './editor/model';
 
 const memory = vi.hoisted(() => ({
@@ -61,12 +61,18 @@ describe('R1 — ошибки при сохранении обучения', () 
       await waitFor(() => expect(screen.getByRole('button', { name: 'Начать урок линий' }).hasAttribute('disabled')).toBe(false));
       fireEvent.click(screen.getByRole('button', { name: 'Начать урок линий' }));
       await screen.findByRole('heading', { name: 'Линия и уверенность' });
+      // Flush the freshly mounted editor's gesture-reset effects before drawing.
+      await act(async () => {});
       draw();
-      fireEvent.click(screen.getByRole('button', { name: 'Следующий шаг' }));
+      await waitFor(() => expect(screen.getByText('Штрихов: 1')).toBeTruthy());
+      const next = screen.getByRole('button', { name: 'Следующий шаг' });
+      await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
+      fireEvent.click(next);
       await screen.findByText('Шаг 2 из 3');
       draw();
       await waitFor(() => expect(screen.getByText('Штрихов: 2')).toBeTruthy());
-      fireEvent.click(screen.getByRole('button', { name: 'Следующий шаг' }));
+      await waitFor(() => expect(next.hasAttribute('disabled')).toBe(false));
+      fireEvent.click(next);
       await screen.findByText('Шаг 3 из 3');
       draw();
       draw();

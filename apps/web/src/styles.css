@@ -201,6 +201,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .toolbar-drawing-tools { order: 1; flex: 0 0 auto; }
 .toolbar-shape-options { order: 2; flex-wrap: wrap; }
 .toolbar-brush-settings { order: 3; flex-wrap: wrap; }
+.stylus-hint { font-size: 11px; color: #627467; }
+.stylus-tilt input { accent-color: #315c46; min-width: 18px; min-height: 18px; }
 .toolbar-actions { order: 4; gap: 4px; margin-left: auto; flex: 0 0 auto; }
 .toolbar-has-shapes .toolbar-actions { order: 3; }
 .toolbar-has-shapes .toolbar-brush-settings { order: 4; flex-basis: 100%; }
@@ -413,6 +415,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .toolbar-control-name { grid-area: name; }
   .toolbar-control-value { grid-area: value; }
   .toolbar-brush-settings .studio-control input[type='range'] { grid-area: range; width: 100%; min-width: 0; margin: 0; }
+  .toolbar-brush-settings .stylus-tilt { display: flex; min-height: 36px; }
+  .stylus-hint { grid-column: 1 / -1; }
   .app-shell-studio .studio-layout { grid-template-rows: minmax(0, 1fr) auto; }
   .app-shell-studio .layers-panel { max-height: 32dvh; }
   .layers-panel { padding: 11px 14px; }
@@ -452,11 +456,21 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .toolbar-shape-options .studio-control select { width: 100%; min-width: 0; max-width: none; }
   .toolbar-brush-settings { gap: 6px; }
   .toolbar-brush-settings .studio-control { font-size: 11px; padding: 2px 4px; }
+  /* A third pen slider must not add two more toolbar rows and collapse the canvas. */
+  .toolbar-brush-settings:has(input[aria-label='Чувствительность к нажиму']):not(:has(.stylus-tilt)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Keep the explanation available to assistive technology; labels have tooltips. */
+  .toolbar-brush-settings .stylus-hint { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .toolbar-value-detail { display: none; }
   .studio-control { padding: 2px; }
   .artboard-stage { min-height: 220px; padding: 12px; }
   .app-shell-studio .artboard-stage { min-height: 0; }
   .app-shell-studio:has(.layers-body.open):not(:has(.focus-mode, :fullscreen)) .artboard-stage { min-height: 340px; }
+  /* Calligraphy adds tilt controls; allow vertical scrolling instead of shrinking the artboard. */
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) { height: auto; min-height: 100dvh; overflow: visible; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) :is(.main-content, .workspace-page) { flex: none; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .studio-layout { grid-template-rows: auto auto; overflow: visible; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .studio-main { height: auto; }
+  .app-shell-studio:has(.stylus-tilt):not(:has(.focus-mode, :fullscreen)) .artboard-stage { flex: none; min-height: 340px; }
   .studio-entry-bar .secondary-button { flex: 1 1 auto; min-width: 0; font-size: 12px; }
   .reference-controls input[type='range'] { width: 90px; }
 }

@@ -1,4 +1,212 @@
 import { expect, test } from '@playwright/test';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
+
+test('синтетическое перо: динамика, отмена, повтор и сохранение; мышь остаётся без динамики', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  await expect(page.getByRole('slider', { name: 'Чувствительность к нажиму' })).toHaveValue('80');
+  await canvas.evaluate((node: HTMLCanvasElement) => {
+    // Synthetic input checks the app pipeline, not physical stylus support.
+    // Script-created pointers are not registered for native pointer capture.
+    const captureDescriptor = Object.getOwnPropertyDescriptor(node, 'setPointerCapture');
+    node.setPointerCapture = () => {};
+    try {
+      const rect = node.getBoundingClientRect();
+      for (const [type, x, pressure] of [['pointerdown', .2, .2], ['pointermove', .4, .8], ['pointerup', .6, 0]] as const) {
+        node.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 19, pointerType: 'pen',
+          button: 0, buttons: type === 'pointerup' ? 0 : 1, isPrimary: true,
+          clientX: rect.left + rect.width * x, clientY: rect.top + rect.height * .4,
+          pressure, tiltX: 25, tiltY: -15 }));
+      }
+    } finally {
+      // Restore native capture before the real Playwright mouse interaction below.
+      if (captureDescriptor) Object.defineProperty(node, 'setPointerCapture', captureDescriptor);
+      else Reflect.deleteProperty(node, 'setPointerCapture');
+    }
+  });
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(page.getByText('Штрихов: 0')).toBeVisible();
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+  const rect = await canvas.boundingBox();
+  if (!rect) throw new Error('Холст не виден');
+  await page.mouse.click(rect.x + rect.width * .5, rect.y + rect.height * .7);
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  await expect(page.locator('.save-state')).toContainText('Сохранено');
+  await page.reload();
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  const strokes = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('eskizno-projects');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const projects = await new Promise<any[]>((resolve, reject) => {
+      const request = db.transaction('projects').objectStore('projects').getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return projects.flatMap((project) => project.layers.flatMap((layer: { strokes?: unknown[] }) => layer.strokes ?? []));
+  });
+  expect(strokes).toHaveLength(2);
+  expect(strokes[0].dynamics).toEqual({ pressureSize: .8, tiltAngle: true });
+  expect(strokes[0].points.map((point: { pressure: number }) => point.pressure)).toEqual([
+    expect.closeTo(.2), expect.closeTo(.8), expect.closeTo(.8),
+  ]);
+  expect(strokes[0].points[0]).toMatchObject({ tiltX: 25, tiltY: -15 });
+  expect(strokes[1].dynamics).toBeUndefined();
+  expect(strokes[1].points[0].pressure).toBeUndefined();
+});
+
+test('v2 с операциями и референсом: синтетическое перо, preview, история, reload и PNG', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Свободная студия' }).click();
+  const canvas = page.getByRole('img', { name: 'Холст для рисования' });
+  await canvas.click({ position: { x: 40, y: 40 } });
+  await expect(page.locator('.save-state')).toContainText('Сохранено');
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const r = indexedDB.open('eskizno-projects'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+    });
+    const project = await new Promise<any>((resolve, reject) => {
+      const r = db.transaction('projects').objectStore('projects').getAll();
+      r.onsuccess = () => resolve(r.result[0]); r.onerror = () => reject(r.error);
+    });
+    const paint = project.layers.find((layer: { kind: string }) => layer.kind === 'paint');
+    paint.strokes = [{ id: 'legacy', kind: 'ink', brushId: 'liner', color: '#FF0000', width: 24, opacity: 1,
+      points: [{ x: .1, y: .2 }, { x: .4, y: .2 }] }];
+    paint.operations = [
+      { type: 'fill', fill: { id: 'fill', point: { x: .01, y: .01 }, color: '#FFFFFF' } },
+      { type: 'stroke', strokeId: 'legacy' },
+      { type: 'shape', shape: { id: 'shape', kind: 'rectangle', from: { x: .7, y: .1 }, to: { x: .9, y: .3 },
+        color: '#0000FF', width: 2, style: 'fill', opacity: 1 } },
+    ];
+    project.schemaVersion = 2;
+    project.layers.push({ id: 'reference', kind: 'reference', name: 'Референс', visible: true, locked: true,
+      opacity: .5, assetId: 'ref', placement: 'side', transform: { x: 0, y: 0, scale: 1, rotation: 0 } });
+    const refCanvas = document.createElement('canvas'); refCanvas.width = refCanvas.height = 2;
+    const blob = await new Promise<Blob>((resolve) => refCanvas.toBlob((value) => resolve(value!), 'image/png'));
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['projects', 'assets'], 'readwrite');
+      tx.objectStore('projects').put(project);
+      tx.objectStore('assets').put({ id: `${project.id}:ref`, projectId: project.id, assetId: 'ref', blob });
+      tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+  await page.getByRole('button', { name: 'Мои работы' }).click();
+  await page.getByRole('button', { name: /Открыть работу/ }).click();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+  const beforePen = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL());
+  await canvas.evaluate((node: HTMLCanvasElement) => {
+    node.setPointerCapture = () => {};
+    const rect = node.getBoundingClientRect();
+    for (const [type, x] of [['pointerdown', .2], ['pointermove', .5]] as const)
+      node.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 19, pointerType: 'pen', button: 0, buttons: 1,
+        clientX: rect.left + rect.width * x, clientY: rect.top + rect.height * .7, pressure: .9, tiltX: 20, tiltY: -10 }));
+  });
+  await expect.poll(() => canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL())).not.toBe(beforePen);
+  const preview = await canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL());
+  await canvas.evaluate((node: HTMLCanvasElement) => {
+    const rect = node.getBoundingClientRect();
+    node.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 19, pointerType: 'pen', buttons: 0,
+      clientX: rect.left + rect.width * .5, clientY: rect.top + rect.height * .7, pressure: 0 }));
+    Reflect.deleteProperty(node, 'setPointerCapture');
+  });
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  await expect.poll(() => canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL())).toBe(preview);
+  await page.getByRole('button', { name: 'Отменить' }).click();
+  await expect(page.getByText('Штрихов: 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Повторить' }).click();
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  await expect(page.locator('.save-state')).toContainText('Сохранено');
+  await page.reload();
+  await page.getByRole('button', { name: 'Мои работы' }).click();
+  await page.getByRole('button', { name: /Открыть работу/ }).click();
+  await expect(page.getByText('Штрихов: 2')).toBeVisible();
+  await expect.poll(() => canvas.evaluate((node: HTMLCanvasElement) => node.toDataURL())).toBe(preview);
+  const saved = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const r = indexedDB.open('eskizno-projects'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+    });
+    const tx = db.transaction(['projects', 'assets']);
+    const all = <T,>(r: IDBRequest<T>) => new Promise<T>((resolve, reject) => { r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+    const [projects, assets] = await Promise.all([all(tx.objectStore('projects').getAll()), all(tx.objectStore('assets').getAll())]);
+    // Native Blob is not serializable across Playwright's evaluate boundary.
+    // Check the real IndexedDB payload in-page, then return scalar evidence.
+    const assetSizes = assets.map((asset: { assetId: string; blob: Blob }) => ({
+      assetId: asset.assetId,
+      size: asset.blob.size,
+    }));
+    db.close(); return { project: projects[0], assetSizes };
+  });
+  expect(saved.project.schemaVersion).toBe(3);
+  expect(saved.project.layers[0].operations.map((operation: { type: string }) => operation.type)).toEqual(['fill', 'stroke', 'shape', 'stroke']);
+  expect(saved.project.layers[0].strokes[1].points.at(-1).pressure).toBeCloseTo(.9);
+  expect(saved.project.layers.some((layer: { assetId?: string }) => layer.assetId === 'ref')).toBe(true);
+  expect(saved.assetSizes.some((asset: { assetId: string; size: number }) => asset.assetId === 'ref' && asset.size > 0)).toBe(true);
+  await page.getByRole('button', { name: 'Экспортировать PNG' }).click();
+  const downloadReady = page.waitForEvent('download');
+  await page.getByRole('dialog', { name: 'Экспорт PNG' }).getByRole('button', { name: 'Скачать PNG' }).click();
+  const download = await downloadReady;
+  const path = await download.path();
+  if (!path) throw new Error('PNG не скачан');
+  const image = await loadImage(path);
+  const output = createCanvas(image.width, image.height); const ctx = output.getContext('2d'); ctx.drawImage(image, 0, 0);
+  const pixel = (x: number, y: number) => Array.from(ctx.getImageData(Math.round(x * image.width), Math.round(y * image.height), 1, 1).data);
+  expect(pixel(.25, .2)).toEqual([255, 0, 0, 255]);
+  expect(pixel(.8, .2)).toEqual([0, 0, 255, 255]);
+  const dynamic = pixel(.35, .7);
+  expect(dynamic[0]).toBeLessThan(200); expect(dynamic[1]).toBeLessThan(200); expect(dynamic[3]).toBe(255);
+});
+
+test('параметры пера доступны без горизонтальной прокрутки на телефоне и планшете', async ({ page }) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 820, height: 1180 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Свободная студия' }).click();
+    const pressure = page.getByRole('slider', { name: 'Чувствительность к нажиму' });
+    await expect(pressure).toHaveValue('80');
+    await page.getByRole('button', { name: 'Кисти, выбран Карандаш' }).click();
+    await page.getByRole('button', { name: 'Выбрать Каллиграфия' }).click();
+    const tilt = page.getByRole('checkbox', { name: 'Наклон пера' });
+    await expect(tilt).toBeChecked();
+    for (const control of [pressure, tilt]) {
+      await control.scrollIntoViewIfNeeded();
+      await expect(control).toBeInViewport({ ratio: 1 });
+      // A clipped toolbar can hide overflow without increasing document.scrollWidth.
+      // Check the entire labelled control as well as the actual input.
+      const bounds = await control.evaluate((node) => {
+        const rect = node.closest('label')!.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      });
+      expect(bounds.left, JSON.stringify(viewport)).toBeGreaterThanOrEqual(0);
+      expect(bounds.right, JSON.stringify(viewport)).toBeLessThanOrEqual(viewport.width + 1);
+      expect(bounds.width).toBeGreaterThan(0);
+    }
+    await pressure.click();
+    expect(Number(await pressure.inputValue())).toBeGreaterThanOrEqual(48);
+    expect(Number(await pressure.inputValue())).toBeLessThanOrEqual(52);
+    await pressure.press('Home');
+    await pressure.press('ArrowRight');
+    await expect(pressure).toHaveValue('1');
+    await tilt.uncheck();
+    await expect(tilt).not.toBeChecked();
+    await tilt.check();
+    await expect(tilt).toBeChecked();
+    const penCanvas = await page.getByRole('img', { name: 'Холст для рисования' }).boundingBox();
+    expect(penCanvas?.width, `Холст не должен схлопываться после включения каллиграфии: ${JSON.stringify(viewport)}`).toBeGreaterThan(100);
+    const resetZoom = page.getByRole('button', { name: 'Сброс масштаба' });
+    await resetZoom.scrollIntoViewIfNeeded();
+    await expect(resetZoom).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width + 1);
+  }
+});
 
 test('мышь: штрих, масштаб, отмена и повтор, слои без потери пикселей', async ({ page }) => {
   const errors: string[] = [];
@@ -66,7 +274,10 @@ test('на телефоне кисть и ластик сохраняют соб
   await page.getByRole('button', { name: 'Кисти, выбран Карандаш' }).click();
   await page.getByRole('button', { name: 'Выбрать Карандаш' }).click();
   await expect(thickness).toHaveValue('18');
-  await page.mouse.click(rect.x + rect.width / 3, rect.y + rect.height / 3);
+  // Changing tools can reflow the toolbar and shift the canvas.
+  const brushRect = await canvas.boundingBox();
+  if (!brushRect) throw new Error('Холст не виден после смены инструмента');
+  await page.mouse.click(brushRect.x + brushRect.width / 3, brushRect.y + brushRect.height / 3);
   await expect(page.getByText('Штрихов: 2')).toBeVisible();
   await page.getByRole('button', { name: 'Ластик' }).click();
   await expect(eraserThickness).toHaveValue('31');

@@ -93,6 +93,26 @@ function memoryDb() {
 }
 
 describe('локальное хранение проектов', () => {
+  it('загружает v2 из IndexedDB и сохраняет миграцию и динамический v3', async () => {
+    const { db } = memoryDb();
+    const base = createProject();
+    const legacy = { ...applyAction(base, { type: 'addStroke', layerId: base.activeLayerId,
+      stroke: { id: 'old', kind: 'ink', brushId: 'pencil', color: '#123456', width: 5,
+        opacity: 1, points: [{ x: .1, y: .2 }] } }), schemaVersion: 2 };
+    const tx = db.transaction('projects', 'readwrite');
+    tx.objectStore('projects').put(legacy);
+    await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error); });
+    const migrated = (await loadProject(db, base.id))!.project;
+    expect(migrated).toEqual({ ...legacy, schemaVersion: 3 });
+    await saveProject(db, migrated, new Map());
+    expect((await loadProject(db, base.id))?.project).toEqual(migrated);
+    const dynamic = { id: 'new', kind: 'ink' as const, brushId: 'pencil' as const, color: '#123456',
+      width: 5, opacity: 1, points: [{ x: .1, y: .2, pressure: .1, tiltX: -35, tiltY: 20 },
+        { x: .3, y: .4, pressure: .9 }], dynamics: { pressureSize: .7, tiltAngle: true } };
+    const updated = applyAction(migrated, { type: 'addStroke', layerId: base.activeLayerId, stroke: dynamic });
+    await saveProject(db, updated, new Map());
+    expect((await loadProject(db, base.id))?.project.layers[0]).toMatchObject({ strokes: [legacy.layers[0].kind === 'paint' ? legacy.layers[0].strokes[0] : null, dynamic] });
+  });
   it('прогресс нового обучения независим от прежнего progress и переживает ошибку транзакции', async () => {
     const { db, failPut } = memoryDb();
     const original = { schemaVersion: 1 as const,
