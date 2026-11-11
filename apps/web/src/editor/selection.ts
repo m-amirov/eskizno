@@ -1,5 +1,6 @@
 import { getPaintOperations, type PaintLayer, type Point, type Stroke } from './model';
 import { hitTestShape, shapeBounds, type ShapeHandle } from './shapeGeometry';
+import { dynamicBrushWidth, hasDynamicBrush } from './brushes';
 
 export type SelectionBounds = { left: number; top: number; right: number; bottom: number };
 export type SelectionTransform = { origin: Point; scaleX: number; scaleY: number; translateX: number; translateY: number };
@@ -27,10 +28,17 @@ function segmentDistance(point: Point, a: Point, b: Point, width: number, height
 }
 
 function hitTestStroke(stroke: Stroke, point: Point, width: number, height: number, scale: number): boolean {
-  const margin = stroke.width / 2 + 7 / Math.max(.001, scale);
   const points = stroke.points;
   for (let index = 0; index < points.length; index += 1) {
-    if (segmentDistance(point, points[Math.max(0, index - 1)], points[index], width, height) <= margin) return true;
+    const previous = points[Math.max(0, index - 1)];
+    let radius = stroke.width / 2;
+    if (hasDynamicBrush(stroke)) {
+      const strength = stroke.dynamics!.pressureSize;
+      const maxWidth = Math.max(dynamicBrushWidth(stroke.width, strength, previous.pressure),
+        dynamicBrushWidth(stroke.width, strength, points[index].pressure));
+      radius = Math.max(radius, maxWidth * (stroke.brushId === 'calligraphy' ? .53 : .5));
+    }
+    if (segmentDistance(point, previous, points[index], width, height) <= radius + 7 / Math.max(.001, scale)) return true;
   }
   return false;
 }

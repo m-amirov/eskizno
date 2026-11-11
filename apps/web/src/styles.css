@@ -201,6 +201,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
 .toolbar-drawing-tools { order: 1; flex: 0 0 auto; }
 .toolbar-shape-options { order: 2; flex-wrap: wrap; }
 .toolbar-brush-settings { order: 3; flex-wrap: wrap; }
+.stylus-hint { font-size: 11px; color: #627467; }
+.stylus-tilt input { accent-color: #315c46; min-width: 18px; min-height: 18px; }
 .toolbar-actions { order: 4; gap: 4px; margin-left: auto; flex: 0 0 auto; }
 .toolbar-has-shapes .toolbar-actions { order: 3; }
 .toolbar-has-shapes .toolbar-brush-settings { order: 4; flex-basis: 100%; }
@@ -413,6 +415,8 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .toolbar-control-name { grid-area: name; }
   .toolbar-control-value { grid-area: value; }
   .toolbar-brush-settings .studio-control input[type='range'] { grid-area: range; width: 100%; min-width: 0; margin: 0; }
+  .toolbar-brush-settings .stylus-tilt { display: flex; min-height: 36px; }
+  .stylus-hint { grid-column: 1 / -1; }
   .app-shell-studio .studio-layout { grid-template-rows: minmax(0, 1fr) auto; }
   .app-shell-studio .layers-panel { max-height: 32dvh; }
   .layers-panel { padding: 11px 14px; }

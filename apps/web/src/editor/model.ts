@@ -1,12 +1,13 @@
 /** Serializable document model. The editor and persistence layer share this contract. */
 
-export const DOCUMENT_SCHEMA_VERSION = 2 as const;
+export const DOCUMENT_SCHEMA_VERSION = 3 as const;
 export const MAX_LAYERS = 16;
 export const MAX_PALETTE_COLORS = 32;
 
 export type BrushId = 'pencil' | 'liner' | 'marker' | 'soft'
   | 'watercolor' | 'charcoal' | 'dry' | 'airbrush' | 'calligraphy' | 'pastel';
 export type Point = { x: number; y: number };
+export type StrokePoint = Point & { pressure?: number; tiltX?: number; tiltY?: number };
 export type ReferenceTransform = { x: number; y: number; scale: number; rotation: number };
 
 export interface Stroke {
@@ -16,7 +17,8 @@ export interface Stroke {
   color: string;
   width: number;
   opacity: number;
-  points: Point[];
+  points: StrokePoint[];
+  dynamics?: { pressureSize: number; tiltAngle: boolean };
   step?: number;
 }
 
@@ -144,7 +146,7 @@ function isValidTransform(value: ReferenceTransform): boolean {
     && isFiniteNumber(value.rotation);
 }
 
-function isValidStroke(value: Stroke): boolean {
+function isValidStroke(value: Stroke, legacy = false): boolean {
   return value !== null && typeof value === 'object'
     && isId(value.id)
     && (value.kind === 'ink' || value.kind === 'erase')
@@ -154,7 +156,12 @@ function isValidStroke(value: Stroke): boolean {
     && isUnit(value.opacity)
     && Array.isArray(value.points) && value.points.length > 0
     && value.points.every((point) => point !== null && typeof point === 'object'
-      && isUnit(point.x) && isUnit(point.y))
+      && isUnit(point.x) && isUnit(point.y)
+      && (legacy || (point.pressure === undefined || isUnit(point.pressure))
+      && (point.tiltX === undefined || isFiniteNumber(point.tiltX) && point.tiltX >= -90 && point.tiltX <= 90)
+      && (point.tiltY === undefined || isFiniteNumber(point.tiltY) && point.tiltY >= -90 && point.tiltY <= 90)))
+    && (legacy || value.dynamics === undefined || value.dynamics !== null && typeof value.dynamics === 'object'
+      && isUnit(value.dynamics.pressureSize) && typeof value.dynamics.tiltAngle === 'boolean')
     && (value.step === undefined || Number.isInteger(value.step) && value.step >= 0);
 }
 
@@ -196,7 +203,7 @@ function usedPaintIds(project: DrawingProject): Set<string> {
     ? [...layer.strokes.map(({ id }) => id), ...getPaintOperations(layer).map(operationId)] : []));
 }
 
-function copyLayer(layer: Layer): Layer | null {
+function copyLayer(layer: Layer, legacy = false): Layer | null {
   if (!layer || !isId(layer.id) || typeof layer.name !== 'string' || !layer.name.trim()
     || typeof layer.visible !== 'boolean' || typeof layer.locked !== 'boolean'
     || !isUnit(layer.opacity)) {
@@ -212,7 +219,7 @@ function copyLayer(layer: Layer): Layer | null {
   };
 
   if (layer.kind === 'paint') {
-    if (!Array.isArray(layer.strokes) || !layer.strokes.every(isValidStroke)) return null;
+    if (!Array.isArray(layer.strokes) || !layer.strokes.every((stroke) => isValidStroke(stroke, legacy))) return null;
     const ids = layer.strokes.map((stroke) => stroke.id);
     if (new Set(ids).size !== ids.length) return null;
     if (layer.operations !== undefined) {
@@ -230,7 +237,11 @@ function copyLayer(layer: Layer): Layer | null {
       if (ids.length !== layer.operations.filter((op) => op.type === 'stroke').length
         || ids.some((id) => !seenIds.has(id))) return null;
     }
-    return { ...common, kind: 'paint', strokes: layer.strokes.map(copyStroke),
+    return { ...common, kind: 'paint', strokes: layer.strokes.map((stroke) => {
+      if (!legacy) return copyStroke(stroke);
+      const { dynamics: _dynamics, ...rest } = stroke;
+      return { ...rest, points: stroke.points.map(({ x, y }) => ({ x, y })) };
+    }),
       ...(layer.operations ? { operations: layer.operations.map(copyOperation) } : {}) };
   }
 
@@ -252,7 +263,8 @@ function copyLayer(layer: Layer): Layer | null {
 function copyStroke(stroke: Stroke): Stroke {
   return {
     ...stroke,
-    points: stroke.points.map(({ x, y }) => ({ x, y })),
+    points: stroke.points.map((point) => ({ ...point })),
+    ...(stroke.dynamics ? { dynamics: { ...stroke.dynamics } } : {}),
   };
 }
 
@@ -319,8 +331,8 @@ export function createProject(options: CreateProjectOptions = {}): DrawingProjec
 /** Validate stored data before passing it to the renderer; never trust IndexedDB contents. */
 export function parseDrawingProject(value: unknown): DrawingProject | null {
   if (!value || typeof value !== 'object') return null;
-  const project = value as DrawingProject;
-  if (project.schemaVersion !== DOCUMENT_SCHEMA_VERSION || !isId(project.id)
+  const project = value as Omit<DrawingProject, 'schemaVersion'> & { schemaVersion: number };
+  if ((project.schemaVersion !== 2 && project.schemaVersion !== DOCUMENT_SCHEMA_VERSION) || !isId(project.id)
     || typeof project.title !== 'string' || !project.title.trim()
     || !Number.isInteger(project.width) || !Number.isInteger(project.height)
     || project.width < 1 || project.width > 4096 || project.height < 1 || project.height > 4096
@@ -328,7 +340,7 @@ export function parseDrawingProject(value: unknown): DrawingProject | null {
     || !Array.isArray(project.layers) || !project.layers.length || project.layers.length > MAX_LAYERS
     || !Array.isArray(project.palette) || project.palette.length > MAX_PALETTE_COLORS
     || !project.palette.every(isHexColor)) return null;
-  const layers = project.layers.map(copyLayer);
+  const layers = project.layers.map((layer) => copyLayer(layer, project.schemaVersion === 2));
   if (layers.some((layer) => !layer)) return null;
   const validLayers = layers as Layer[];
   if (new Set(validLayers.map((layer) => layer.id)).size !== validLayers.length
@@ -337,7 +349,7 @@ export function parseDrawingProject(value: unknown): DrawingProject | null {
     || !['adult', 'child'].includes(project.lesson.audience)
     || !['trace', 'construct', 'free'].includes(project.lesson.mode)
     || !Number.isInteger(project.lesson.step) || project.lesson.step < 0)) return null;
-  return { ...project, title: project.title.trim(), layers: validLayers,
+  return { ...project, schemaVersion: DOCUMENT_SCHEMA_VERSION, title: project.title.trim(), layers: validLayers,
     palette: [...project.palette], ...(project.lesson ? { lesson: { ...project.lesson } } : {}) };
 }
 
@@ -358,7 +370,8 @@ export function applyAction(project: DrawingProject, action: ProjectAction): Dra
         if (ids.some((id) => !known.has(id))) return null;
         const wanted = new Set(ids);
         const scaleWidth = Math.sqrt(scaleX * scaleY);
-        const point = (entry: Point): Point => ({
+        const point = <T extends Point>(entry: T): T => ({
+          ...entry,
           x: Math.round((origin.x + (entry.x - origin.x) * scaleX + translateX) * 1_000_000) / 1_000_000,
           y: Math.round((origin.y + (entry.y - origin.y) * scaleY + translateY) * 1_000_000) / 1_000_000,
         });
@@ -368,7 +381,7 @@ export function applyAction(project: DrawingProject, action: ProjectAction): Dra
           operation.type === 'shape' && wanted.has(operation.shape.id)
             ? { type: 'shape' as const, shape: { ...operation.shape, width: Math.min(256, operation.shape.width * scaleWidth),
               from: point(operation.shape.from), to: point(operation.shape.to) } } : operation);
-        if (!nextStrokes.every(isValidStroke)
+        if (!nextStrokes.every((stroke) => isValidStroke(stroke))
           || !nextOperations.every((operation) => operation.type !== 'shape' || isValidShape(operation.shape))) return null;
         return { ...layer, strokes: nextStrokes, operations: nextOperations };
       });

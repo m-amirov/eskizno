@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { applyAction, createProject, type BrushId, type DrawingProject, type Stroke, type Shape } from './model';
 import { pickCompositedColor, renderProject } from './render';
-import { sampleStrokePoints } from './brushes';
+import { paintBrushStroke, sampleStrokePoints } from './brushes';
 
 const makeStroke = (
   id: string, color: string, kind: 'ink' | 'erase' = 'ink', width = 16,
@@ -42,6 +42,75 @@ const pixel = (ctx: ReturnType<typeof render>, x = 32, y = 32) =>
   Array.from(ctx.getImageData(x, y, 1, 1).data);
 
 const brushNames = ['pencil', 'liner', 'marker', 'soft', 'watercolor', 'charcoal', 'dry', 'airbrush', 'calligraphy', 'pastel'] as BrushId[];
+
+describe('динамика кистей в пикселях', () => {
+  const image = (stroke: Stroke) => {
+    const canvas = createCanvas(96, 96);
+    paintBrushStroke(canvas.getContext('2d') as unknown as CanvasRenderingContext2D, stroke, 96, 96);
+    return canvas.getContext('2d').getImageData(0, 0, 96, 96).data;
+  };
+  const alpha = (data: Uint8ClampedArray, x: number, y: number) => data[(y * 96 + x) * 4 + 3];
+  it.each(['pencil', 'liner'] as const)('%s расширяется при сильном нажиме', (brushId) => {
+    const base = { ...makeStroke('pressure', '#000000', 'ink', 30), brushId,
+      dynamics: { pressureSize: 1, tiltAngle: true } };
+    const weak = image({ ...base, points: base.points.map((p) => ({ ...p, pressure: 0 })) });
+    const strong = image({ ...base, points: base.points.map((p) => ({ ...p, pressure: 1 })) });
+    const sum = (data: Uint8ClampedArray) => data.reduce((n, value, i) => n + (i % 4 === 3 ? value : 0), 0);
+    expect(sum(strong)).toBeGreaterThan(sum(weak) * 1.5);
+  });
+  it('полупрозрачный динамический карандаш не темнеет из-за перекрытия семплов', () => {
+    const legacy = { ...makeStroke('pencil', '#000000', 'ink', 30), brushId: 'pencil' as const, opacity: .5 };
+    const dynamic = { ...legacy, dynamics: { pressureSize: 1, tiltAngle: false },
+      points: legacy.points.map((p) => ({ ...p, pressure: .5 })) };
+    expect(Math.abs(alpha(image(dynamic), 48, 48) - alpha(image(legacy), 48, 48))).toBeLessThanOrEqual(3);
+  });
+  it('полупрозрачная сердцевина каллиграфии не темнеет от перекрытия сегментов', () => {
+    const legacy = { ...makeStroke('calligraphy-core', '#000000', 'ink', 30), brushId: 'calligraphy' as const, opacity: .25 };
+    const dynamic = { ...legacy, dynamics: { pressureSize: 1, tiltAngle: false },
+      points: legacy.points.map((p) => ({ ...p, pressure: .5 })) };
+    expect(Math.abs(alpha(image(dynamic), 48, 48) - alpha(image(legacy), 48, 48))).toBeLessThanOrEqual(3);
+  });
+  it('наклон поворачивает каллиграфическое перо, повторный рендер идентичен', () => {
+    const base = { ...makeStroke('tilt', '#000000', 'ink', 30), brushId: 'calligraphy' as const,
+      dynamics: { pressureSize: 1, tiltAngle: true } };
+    const horizontal = { ...base, points: [{ x: .5, y: .5, pressure: .5, tiltX: 30, tiltY: 0 }] };
+    const vertical = { ...base, points: [{ x: .5, y: .5, pressure: .5, tiltX: 0, tiltY: 30 }] };
+    const a = image(horizontal); const b = image(vertical);
+    expect(alpha(a, 58, 48)).toBeGreaterThan(alpha(b, 58, 48));
+    expect(alpha(b, 48, 58)).toBeGreaterThan(alpha(a, 48, 58));
+    expect(image(horizontal)).toEqual(a);
+  });
+  it('старый линер совпадает с прежним Canvas2D path пиксель-в-пиксель', () => {
+    const stroke = makeStroke('legacy', '#315B46', 'ink', 16);
+    const canvas = createCanvas(96, 96); const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = stroke.color; ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(19.2, 48); ctx.lineTo(76.80000000000001, 48); ctx.stroke();
+    expect(image(stroke)).toEqual(ctx.getImageData(0, 0, 96, 96).data);
+  });
+  it('прочие кисти игнорируют снимок динамики', () => {
+    for (const brushId of brushNames.filter((id) => !['pencil', 'liner', 'calligraphy'].includes(id))) {
+      const stroke = { ...makeStroke(`other-${brushId}`, '#315B46', 'ink', 18), brushId };
+      expect(image({ ...stroke, dynamics: { pressureSize: 1, tiltAngle: true },
+        points: stroke.points.map((p) => ({ ...p, pressure: 0, tiltX: 30, tiltY: 20 })) })).toEqual(image(stroke));
+    }
+  });
+  it('рендерит ограниченный штрих на холсте 2048²', () => {
+    const canvas = createCanvas(2048, 2048);
+    const stroke = { ...makeStroke('benchmark', '#000000', 'ink', 12), brushId: 'liner' as const,
+      dynamics: { pressureSize: 1, tiltAngle: true },
+      points: Array.from({ length: 5000 }, (_, i) => ({ x: i / 4999, y: .5, pressure: i / 4999 })) };
+    const start = performance.now();
+    paintBrushStroke(canvas.getContext('2d') as unknown as CanvasRenderingContext2D, stroke, 2048, 2048);
+    console.info(`2048² dynamic liner: ${(performance.now() - start).toFixed(1)} ms`);
+    expect(canvas.getContext('2d').getImageData(1024, 1024, 1, 1).data[3]).toBeGreaterThan(0);
+  });
+  it('некорректные сенсоры не передают нечисловую геометрию в Canvas', () => {
+    const stroke = { ...makeStroke('invalid', '#000000', 'ink', 20), brushId: 'calligraphy' as const,
+      dynamics: { pressureSize: 1, tiltAngle: true },
+      points: [{ x: .5, y: .5, pressure: NaN, tiltX: Infinity, tiltY: NaN }] };
+    expect(alpha(image(stroke), 48, 48)).toBeGreaterThan(0);
+  });
+});
 
 describe('пиксельная заливка и геометрия', () => {
   const shape: Shape = {

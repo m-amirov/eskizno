@@ -1,4 +1,4 @@
-import type { BrushId, Point, Stroke } from './model';
+import type { BrushId, Point, Stroke, StrokePoint } from './model';
 
 type Context = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type PixelPoint = { x: number; y: number };
@@ -38,6 +38,117 @@ export const BRUSH_PRESETS: ReadonlyArray<{
 ];
 
 const MAX_STAMPS = 2600;
+
+type DynamicPoint = PixelPoint & { pressure: number; tiltX?: number; tiltY?: number };
+
+export function hasDynamicBrush(stroke: Stroke): boolean {
+  return stroke.kind === 'ink' && (stroke.brushId === 'pencil' || stroke.brushId === 'liner' || stroke.brushId === 'calligraphy')
+    && !!stroke.dynamics && Number.isFinite(stroke.dynamics.pressureSize)
+    && stroke.dynamics.pressureSize >= 0 && stroke.dynamics.pressureSize <= 1
+    && typeof stroke.dynamics.tiltAngle === 'boolean';
+}
+
+export function dynamicBrushWidth(width: number, strength: number, pressure?: number): number {
+  const p = Number.isFinite(pressure) ? Math.max(0, Math.min(1, pressure!)) : .5;
+  return Math.max(.01, Math.min(width, 1e6) * (1 + strength * (p - .5)));
+}
+
+/** Arc-length interpolation without an auxiliary array proportional to pointer input. */
+export function sampleDynamicStrokePoints(
+  points: readonly StrokePoint[], width: number, height: number, spacing: number, maxSamples = MAX_STAMPS,
+): DynamicPoint[] {
+  const limit = Number.isFinite(maxSamples) ? Math.min(MAX_STAMPS, Math.floor(maxSamples)) : MAX_STAMPS;
+  if (limit < 1 || !Number.isFinite(width) || !Number.isFinite(height)) return [];
+  const convert = (point: StrokePoint): DynamicPoint | undefined => {
+    const rawX = point.x * width; const rawY = point.y * height;
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) return undefined;
+    const x = Math.max(-1e7, Math.min(1e7, rawX)); const y = Math.max(-1e7, Math.min(1e7, rawY));
+    const pressure = Number.isFinite(point.pressure) ? Math.max(0, Math.min(1, point.pressure!)) : .5;
+    const tilt = (v: number | undefined) => Number.isFinite(v) ? Math.max(-90, Math.min(90, v!)) : undefined;
+    const tiltX = tilt(point.tiltX); const tiltY = tilt(point.tiltY);
+    return { x, y, pressure, ...(tiltX === undefined ? {} : { tiltX }), ...(tiltY === undefined ? {} : { tiltY }) };
+  };
+  let first: DynamicPoint | undefined; let previous: DynamicPoint | undefined; let length = 0;
+  for (const point of points) {
+    const next = convert(point); if (!next) continue;
+    first ??= next;
+    if (previous) length += Math.hypot(next.x - previous.x, next.y - previous.y);
+    previous = next;
+  }
+  if (!first || !previous || !Number.isFinite(length)) return [];
+  if (length === 0) return [previous];
+  if (limit === 1) return [first];
+  const step = Math.max(.25, Number.isFinite(spacing) ? spacing : .25, length / (limit - 1));
+  const sampled: DynamicPoint[] = [first];
+  let target = step; let travelled = 0; let from: DynamicPoint | undefined;
+  for (const point of points) {
+    const to = convert(point); if (!to) continue;
+    if (!from) { from = to; continue; }
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    while (distance > 0 && target < length && target <= travelled + distance && sampled.length < limit - 1) {
+      const t = (target - travelled) / distance;
+      const mix = (a: number, b: number) => a + (b - a) * t;
+      const tiltX = from.tiltX !== undefined && to.tiltX !== undefined ? mix(from.tiltX, to.tiltX) : undefined;
+      const tiltY = from.tiltY !== undefined && to.tiltY !== undefined ? mix(from.tiltY, to.tiltY) : undefined;
+      sampled.push({ x: mix(from.x, to.x), y: mix(from.y, to.y), pressure: mix(from.pressure, to.pressure),
+        ...(tiltX === undefined ? {} : { tiltX }), ...(tiltY === undefined ? {} : { tiltY }) });
+      target += step;
+    }
+    travelled += distance; from = to;
+  }
+  sampled.push(previous);
+  return sampled;
+}
+
+export function calligraphyAngle(tiltX?: number, tiltY?: number): number {
+  if (!Number.isFinite(tiltX) || !Number.isFinite(tiltY) || (tiltX === 0 && tiltY === 0)) return -Math.PI / 4;
+  return Math.atan2(tiltY!, tiltX!);
+}
+
+function paintDynamicStroke(ctx: Context, stroke: Stroke, width: number, height: number): void {
+  if (!Number.isFinite(stroke.width) || stroke.width <= 0 || !Number.isFinite(stroke.opacity)) return;
+  const w = Math.min(stroke.width, 1e6);
+  const samples = sampleDynamicStrokePoints(stroke.points, width, height, Math.max(.5, w * .085));
+  if (!samples.length) return;
+  const strength = stroke.dynamics!.pressureSize;
+  const size = (p: number) => dynamicBrushWidth(w, strength, p);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  // Fill each layer once: overlapping interpolated dabs must not compound opacity.
+  const layer = (scale: number, minimum: number, alpha: number) => {
+    ctx.globalAlpha = alpha; ctx.fillStyle = stroke.color; ctx.beginPath();
+    for (let i = 0; i < samples.length; i += 1) {
+      const p = samples[i]; const radius = Math.max(minimum, size(p.pressure) * scale) / 2;
+      ctx.moveTo(p.x + radius, p.y); ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      if (!i) continue;
+      const a = samples[i - 1]; const dx = p.x - a.x; const dy = p.y - a.y; const d = Math.hypot(dx, dy);
+      if (!d) continue;
+      const nx = -dy / d; const ny = dx / d;
+      const r = Math.max(minimum, size(a.pressure) * scale) / 2;
+      ctx.moveTo(a.x - nx * r, a.y - ny * r);
+      ctx.lineTo(p.x - nx * radius, p.y - ny * radius);
+      ctx.lineTo(p.x + nx * radius, p.y + ny * radius);
+      ctx.lineTo(a.x + nx * r, a.y + ny * r); ctx.closePath();
+    }
+    ctx.fill();
+  };
+  if (stroke.brushId === 'calligraphy') {
+    // A continuous core prevents gaps when the sampling cap is reached.
+    layer(.24, .8, stroke.opacity * .86);
+    for (let i = 0; i < samples.length; i += 1) {
+      const p = samples[i];
+      ctx.globalAlpha = stroke.opacity; ctx.fillStyle = stroke.color; ctx.beginPath();
+      ctx.ellipse(p.x, p.y, Math.max(.35, size(p.pressure) * .53), Math.max(.24, size(p.pressure) * .11),
+        stroke.dynamics!.tiltAngle ? calligraphyAngle(p.tiltX, p.tiltY) : -Math.PI / 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    if (stroke.brushId === 'pencil') {
+      layer(.4, .7, stroke.opacity * .64); layer(.16, .4, stroke.opacity * .35);
+    } else layer(1, .35, stroke.opacity);
+  }
+  ctx.restore();
+}
 
 /** Bounded arc-length sampling; its limit prevents dense pointer data from exploding brush work. */
 export function sampleStrokePoints(
@@ -143,6 +254,10 @@ function radialStamp(ctx: Context, x: number, y: number, radius: number, color: 
 /** One deterministic raster implementation for both in-progress preview and final strokes. */
 export function paintBrushStroke(ctx: Context, stroke: Stroke, canvasWidth: number, canvasHeight: number): void {
   if (!stroke.points.length || stroke.kind !== 'ink') return;
+  if (hasDynamicBrush(stroke)) {
+    paintDynamicStroke(ctx, stroke, canvasWidth, canvasHeight);
+    return;
+  }
   const points = stroke.points.map((point) => ({ x: point.x * canvasWidth, y: point.y * canvasHeight }));
   const w = stroke.width;
   const color = stroke.color;
