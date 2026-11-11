@@ -199,6 +199,8 @@ test('параметры пера доступны без горизонталь
     await expect(tilt).not.toBeChecked();
     await tilt.check();
     await expect(tilt).toBeChecked();
+    const penCanvas = await page.getByRole('img', { name: 'Холст для рисования' }).boundingBox();
+    expect(penCanvas?.width, `Холст не должен схлопываться после включения каллиграфии: ${JSON.stringify(viewport)}`).toBeGreaterThan(100);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width + 1);
   }
 });
@@ -269,7 +271,10 @@ test('на телефоне кисть и ластик сохраняют соб
   await page.getByRole('button', { name: 'Кисти, выбран Карандаш' }).click();
   await page.getByRole('button', { name: 'Выбрать Карандаш' }).click();
   await expect(thickness).toHaveValue('18');
-  await page.mouse.click(rect.x + rect.width / 3, rect.y + rect.height / 3);
+  // Changing tools can reflow the toolbar and shift the canvas.
+  const brushRect = await canvas.boundingBox();
+  if (!brushRect) throw new Error('Холст не виден после смены инструмента');
+  await page.mouse.click(brushRect.x + brushRect.width / 3, brushRect.y + brushRect.height / 3);
   await expect(page.getByText('Штрихов: 2')).toBeVisible();
   await page.getByRole('button', { name: 'Ластик' }).click();
   await expect(eraserThickness).toHaveValue('31');

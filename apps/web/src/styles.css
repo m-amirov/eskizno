@@ -456,6 +456,10 @@ button:focus-visible { outline: 3px solid #c18b42; outline-offset: 3px; }
   .toolbar-shape-options .studio-control select { width: 100%; min-width: 0; max-width: none; }
   .toolbar-brush-settings { gap: 6px; }
   .toolbar-brush-settings .studio-control { font-size: 11px; padding: 2px 4px; }
+  /* A third pen slider must not add two more toolbar rows and collapse the canvas. */
+  .toolbar-brush-settings:has(input[aria-label='Чувствительность к нажиму']):not(:has(.stylus-tilt)) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Keep the explanation available to assistive technology; labels have tooltips. */
+  .toolbar-brush-settings .stylus-hint { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .toolbar-value-detail { display: none; }
   .studio-control { padding: 2px; }
   .artboard-stage { min-height: 220px; padding: 12px; }

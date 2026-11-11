@@ -53,7 +53,10 @@ test('точечный штрих переносится без захвата �
   await page.mouse.click(box.x + box.width * .4, box.y + box.height * .4);
   expect(await colorAt(page, .4, .4)).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Выделение' }).click();
-  await page.mouse.click(box.x + box.width * .4, box.y + box.height * .4);
+  // Pen controls disappear when selecting; use the current artboard geometry.
+  const selectBox = await canvas.boundingBox();
+  if (!selectBox) throw new Error('Холст не виден после смены инструмента');
+  await page.mouse.click(selectBox.x + selectBox.width * .4, selectBox.y + selectBox.height * .4);
   await expect(page.getByText('Выбрано: 1')).toBeVisible();
   await dragOnCanvas(page, [.4, .4], [.6, .4]);
   await page.getByRole('button', { name: /Кисти, выбран/ }).click();
