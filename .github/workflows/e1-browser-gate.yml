@@ -8,6 +8,7 @@ on:
       - feat/r1-dual-workspaces
       - feat/r2-selection-transform
       - feat/r3-pen-dynamics
+      - feat/e2-lessons-recovery
   pull_request:
     branches:
       - main
@@ -16,6 +17,7 @@ on:
       - feat/e1-7-finish
       - feat/r1-dual-workspaces
       - feat/r2-selection-transform
+      - feat/r3-pen-dynamics
 
 permissions:
   contents: read
